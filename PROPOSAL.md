@@ -438,10 +438,10 @@ The router's contract with its eventual primary consumer:
 - **Mirror rule (§16):** every runtime src file has its mirrored test file per
   face project; `tests/setup.ts` (+ `setupBrowser.ts`) provide recorders per
   the house pattern.
-- **Guides parity:** three manifest rows — `Router → src/router.md → src/core`,
-  `Navigator → src/navigator.md → src/browser`,
-  `Listener → src/listener.md → src/server` — with the standard drop-in parity
-  suite (surface/methods bijection, examples, links, fence imports,
+- **Guides parity:** one manifest row — `Router → src/router.md → [src/core,
+src/browser, src/server]` (AGENTS §22 — one guide per package) — with the
+  standard drop-in parity suite (surface/methods bijection, examples, links,
+  fence imports,
   `SELF_SPECIFIERS = ['@orkestrel/router', '@src/core', '@src/browser', '@src/server']`).
 
 ## 9. Implementation plan

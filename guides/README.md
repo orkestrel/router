@@ -5,19 +5,17 @@ directory (AGENTS §22).
 
 ## By concept
 
-| Concept   | Spec                                   | Source                          | Tests                                       |
-| --------- | -------------------------------------- | ------------------------------- | ------------------------------------------- |
-| Router    | [`src/router.md`](src/router.md)       | [`src/core`](../src/core)       | [`tests/src/core`](../tests/src/core)       |
-| Navigator | [`src/navigator.md`](src/navigator.md) | [`src/browser`](../src/browser) | [`tests/src/browser`](../tests/src/browser) |
-| Listener  | [`src/listener.md`](src/listener.md)   | [`src/server`](../src/server)   | [`tests/src/server`](../tests/src/server)   |
+| Concept | Spec                             | Source                                                                                    | Tests                                                                                                                         |
+| ------- | -------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Router  | [`src/router.md`](src/router.md) | [`src/core`](../src/core), [`src/browser`](../src/browser), [`src/server`](../src/server) | [`tests/src/core`](../tests/src/core), [`tests/src/browser`](../tests/src/browser), [`tests/src/server`](../tests/src/server) |
 
 ## By directory
 
-| Directory     | Guide                                  |
-| ------------- | -------------------------------------- |
-| `src/core`    | [`src/router.md`](src/router.md)       |
-| `src/browser` | [`src/navigator.md`](src/navigator.md) |
-| `src/server`  | [`src/listener.md`](src/listener.md)   |
+| Directory     | Guide                            |
+| ------------- | -------------------------------- |
+| `src/core`    | [`src/router.md`](src/router.md) |
+| `src/browser` | [`src/router.md`](src/router.md) |
+| `src/server`  | [`src/router.md`](src/router.md) |
 
 ## Dependency reference
 
@@ -51,3 +49,4 @@ the primitives it is built from without leaving this guide set.
 ## See also
 
 - [`AGENTS.md`](../AGENTS.md) — the rules; §22 documentation-as-contracts.
+</content>

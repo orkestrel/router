@@ -1,6 +1,7 @@
 // The consumer-side guides-parity drop-in (PROPOSAL §6): runs `@orkestrel/guide`'s
-// checks against this repo's own `guides/README.md` manifest — three rows (Router,
-// Navigator, Listener) across the core/browser/server faces.
+// checks against this repo's own `guides/README.md` manifest — one row (Router)
+// spanning the core/browser/server faces as a multi-dir `GuideModule` (AGENTS §22 —
+// one guide per package).
 
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'

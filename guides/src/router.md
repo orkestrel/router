@@ -1,19 +1,24 @@
 # Router
 
-> The pure, environment-agnostic core (PROPOSAL §5.1): a registry-and-match
-> engine (`Router`) plus a fetch-standard, method-dimensioned dispatcher
-> (`Dispatcher`) layered over one internal `Router<RouteRecord<TState>>`.
-> Neither entity touches DOM or `node:*` — only `URL` / `Request` / `Response`
-> / `AbortSignal`, universal web-standard globals available in every runtime
-> this package targets. `Router` is the ONE shared machine both the browser
-> `Navigator` and the core `Dispatcher` compose — literal-over-param-over-
-> wildcard precedence, trailing-slash folding, tolerant percent-decoding, and
-> the `answers` native-override seam all come from this single engine
-> (AGENTS §21 "one engine, native overrides"). Source: [`src/core`](../../src/core).
-> Surfaced through the `@orkestrel/router` barrel (aliased `@src/core` inside
-> this repo).
+> This package's ONE guide, covering all three faces (AGENTS §22 — one guide
+> per package): the pure, environment-agnostic core (PROPOSAL §5.1) — a
+> registry-and-match engine (`Router`) plus a fetch-standard,
+> method-dimensioned dispatcher (`Dispatcher`) layered over one internal
+> `Router<RouteRecord<TState>>` — the browser navigation face (PROPOSAL §5.2,
+> `Navigator`), and the node adapter face (PROPOSAL §5.3, `requestFrom` /
+> `sendResponse` / `createListener`). `Router` is the ONE shared machine both
+> `Navigator` and `Dispatcher` compose — literal-over-param-over-wildcard
+> precedence, trailing-slash folding, tolerant percent-decoding, and the
+> `answers` native-override seam all come from this single engine (AGENTS §21
+> "one engine, native overrides"); the core-first story is what makes the
+> other two faces thin. Source: [`src/core`](../../src/core),
+> [`src/browser`](../../src/browser), [`src/server`](../../src/server).
+> Surfaced through the `@orkestrel/router` barrel (aliased `@src/core` /
+> `@src/browser` / `@src/server` inside this repo).
 
 ## Surface
+
+### Core
 
 Register routes on a `Router`, resolve the most-specific match, and dispatch
 fetch-standard requests through a `Dispatcher`:
@@ -43,14 +48,14 @@ Matching is case-sensitive by default (`sensitive: false` opts out); a single
 trailing slash is always optional except on the root `/` and the empty
 pattern (PROPOSAL §4).
 
-### Factories
+#### Factories
 
 | API                | Kind     | Summary                                                                   |
 | ------------------ | -------- | ------------------------------------------------------------------------- |
 | `createRouter`     | function | Create a `RouterInterface<Meta>` — the shared matching + registry engine. |
 | `createDispatcher` | function | Create a `DispatcherInterface<TState>` over one internal `Router`.        |
 
-### Constants
+#### Constants
 
 | API             | Kind  | Summary                                                                  |
 | --------------- | ----- | ------------------------------------------------------------------------ |
@@ -59,7 +64,7 @@ pattern (PROPOSAL §4).
 | `TIER_PARAM`    | const | The middle path-segment specificity tier (a `:name` param).              |
 | `TIER_WILDCARD` | const | The lowest path-segment specificity tier (a final `*name` wildcard).     |
 
-### Helpers
+#### Helpers
 
 | API                  | Kind     | Summary                                                                         |
 | -------------------- | -------- | ------------------------------------------------------------------------------- |
@@ -74,7 +79,7 @@ pattern (PROPOSAL §4).
 | `compareSpecificity` | function | Compare two paths by specificity for a descending sort.                         |
 | `joinPaths`          | function | Join a group prefix and a route path into one `/`-prefixed path.                |
 
-### Entities
+#### Entities
 
 | API             | Kind  | Summary                                                                         |
 | --------------- | ----- | ------------------------------------------------------------------------------- |
@@ -83,7 +88,7 @@ pattern (PROPOSAL §4).
 | `Dispatcher`    | class | The fetch-standard, method-dimensioned dispatch entity over one `Router`.       |
 | `DispatchGroup` | class | A prefix-scoped registration handle over a `Dispatcher`.                        |
 
-### Types
+#### Types
 
 | Type                     | Kind      | Shape                                                                                             |
 | ------------------------ | --------- | ------------------------------------------------------------------------------------------------- |
@@ -118,12 +123,103 @@ members of `DispatcherInterface` are `readonly` data members (Surface rows,
 above) — the call-signature methods of `RouterInterface` and
 `DispatcherInterface` are documented under [Methods](#methods).
 
+### Browser (Navigator)
+
+Register routes, start listening, and navigate — headless History/hash
+navigation over the SAME core `Router`:
+
+```ts
+import { createNavigator } from '@src/browser'
+
+const navigator = createNavigator({
+	routes: [
+		{ path: '/users/:id', meta: { title: 'User' } },
+		{ path: '/tokens', meta: { title: 'Tokens' } },
+	],
+	on: { navigate: (match) => (document.title = match.meta.title) },
+})
+navigator.start() // resolves the current hash now, and on every hashchange
+navigator.go('/tokens')
+```
+
+Default mode is `'hash'` (`#/…` + `hashchange`, zero server configuration);
+`mode: 'history'` uses `pushState`/`popstate` with an optional `base` prefix
+and opt-in same-origin `<a>` click `intercept`ion. An optional `guard(to,
+from, signal)` may veto (or asynchronously veto) a navigation before it
+commits.
+
+#### Navigator Factories
+
+| API               | Kind     | Summary                                                          |
+| ----------------- | -------- | ---------------------------------------------------------------- |
+| `createNavigator` | function | Create a `NavigatorInterface<Meta>` composing one core `Router`. |
+
+#### Navigator Helpers
+
+| API            | Kind     | Summary                                                               |
+| -------------- | -------- | --------------------------------------------------------------------- |
+| `hashPath`     | function | Extract the `/`-prefixed pathname from a `location.hash` value.       |
+| `locationPath` | function | Resolve the `/`-prefixed pathname to match for the current location.  |
+| `findAnchor`   | function | Find the nearest enclosing `<a>` element a DOM event originated from. |
+
+#### Navigator Entities
+
+| API         | Kind  | Summary                                                                  |
+| ----------- | ----- | ------------------------------------------------------------------------ |
+| `Navigator` | class | The headless History/hash navigation entity composing one core `Router`. |
+
+#### Navigator Types
+
+| Type                 | Kind      | Shape                                                                                         |
+| -------------------- | --------- | --------------------------------------------------------------------------------------------- |
+| `NavigatorEventMap`  | type      | `{ navigate: [match: RouterMatch<Meta>] }` — the `Navigator`'s AGENTS §13 event map.          |
+| `NavigatorMode`      | type      | `'hash' \| 'history'` — the navigation substrate.                                             |
+| `NavigatorOptions`   | interface | `{ routes; mode?; base?; fallback?; guard?; intercept?; sensitive?; on?; error? }`.           |
+| `NavigatorInterface` | interface | `router` / `emitter` / `active` data members + `start` / `stop` / `go` / `match` / `destroy`. |
+
+The `router`, `emitter`, and `active` members of `NavigatorInterface` are
+`readonly` data members (Surface rows, above) — its call-signature methods
+are documented under [Methods](#methods).
+
+### Server (Listener)
+
+Convert a `node:http` request to a fetch `Request`, dispatch it, and write
+the `Response` back — or use `createListener` to do all three at once:
+
+```ts
+import { createListener } from '@src/server'
+import { createDispatcher } from '@src/core'
+import http from 'node:http'
+
+const dispatcher = createDispatcher()
+dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
+http.createServer(createListener(dispatcher, () => undefined)).listen(0)
+```
+
+#### Server Helpers
+
+| API                 | Kind     | Summary                                                                  |
+| ------------------- | -------- | ------------------------------------------------------------------------ |
+| `isEncryptedSocket` | function | Whether a `node:http` connection socket is TLS-encrypted.                |
+| `requestFrom`       | function | Build a fetch `Request` from a `node:http` `IncomingMessage`.            |
+| `sendResponse`      | function | Write a fetch `Response` back to a `node:http` `ServerResponse`.         |
+| `createListener`    | function | Create a `node:http` request listener over a core `DispatcherInterface`. |
+
+#### Server Types
+
+| Type             | Kind      | Shape                                                                                       |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `RequestOptions` | interface | `{ origin?: string }` — options for `requestFrom`.                                          |
+| `Listener`       | type      | `(request: IncomingMessage, response: ServerResponse) => void` — `createListener`'s return. |
+| `StateResolver`  | type      | `(message: IncomingMessage) => TState` — derives `createListener`'s per-request state.      |
+
 ## Methods
 
-The public methods of `RouterInterface` and `DispatcherInterface` — every
-call-signature member listed (their `readonly` data members stay Surface
-rows). `Router` and `Dispatcher` implement their interfaces exactly, so this
-doubles as each class's instance-method surface (AGENTS §22).
+The public methods of `RouterInterface`, `DispatcherInterface`, and
+`NavigatorInterface` — every call-signature member listed (their `readonly`
+data members stay Surface rows). `Router`, `Dispatcher`, and `Navigator`
+implement their interfaces exactly, so this doubles as each class's
+instance-method surface (AGENTS §22).
 
 #### `RouterInterface`
 
@@ -156,18 +252,35 @@ prefixed registration handle; `match` is the raw method+pathname decision;
 | `handle`  | `Promise<Response>`      | The full dispatch: parse, match, run the handler (or the `unmatched`/`unmethoded` responder).   |
 | `destroy` | `void`                   | Tear down the `#emitter`; the underlying `router` is left registered (not cleared).             |
 
+#### `NavigatorInterface`
+
+`start` begins listening and resolves the current location now; `stop` stops
+listening; `go` navigates programmatically; `match` is a pure lookup with no
+side effects; `destroy` is the §10 teardown.
+
+| Method    | Returns                    | Behavior                                                                                          |
+| --------- | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `start`   | `void`                     | Begin listening (`hashchange`/`popstate` + optional interception) and resolve now (idempotent).   |
+| `stop`    | `void`                     | Stop listening and abort any pending guard (idempotent).                                          |
+| `go`      | `void`                     | Navigate programmatically — set the hash or `pushState`, then resolve.                            |
+| `match`   | `RouterMatch \| undefined` | A pure lookup through the underlying `Router` — no location read, no fallback, no guard, no emit. |
+| `destroy` | `void`                     | `stop()` plus tear down the `#emitter`.                                                           |
+
 ## Contract
 
-These invariants hold across `src/core` ↔ `router.md`:
+These invariants hold across `src/core` / `src/browser` / `src/server` ↔
+`router.md`.
+
+### Core
 
 1. **DOC ↔ SOURCE bijection.** Every `function` / `class` / `interface` /
-   `type` / `const` row in the `## Surface` tables is a real export of
-   `src/core`, and every export appears as a Surface row — exhaustive, both
-   directions (AGENTS §22).
+   `type` / `const` row in the `## Surface` tables is a real export of its
+   source directory, and every export appears as a Surface row — exhaustive,
+   both directions (AGENTS §22).
 2. **DOC ↔ SOURCE method bijection.** The `## Methods` tables list exactly
-   `RouterInterface`'s and `DispatcherInterface`'s public methods —
-   exhaustive, both directions — and `Router` / `Dispatcher` expose the same
-   public methods, no more (AGENTS §22).
+   `RouterInterface`'s, `DispatcherInterface`'s, and `NavigatorInterface`'s
+   public methods — exhaustive, both directions — and `Router` / `Dispatcher`
+   / `Navigator` expose the same public methods, no more (AGENTS §22).
 3. **Path grammar (PROPOSAL §4).** Three segment kinds: literal (`/users`),
    param (`:name`, one segment), wildcard (`*name`, final segment only,
    captures the rest of the path including slashes). A wildcard anywhere but
@@ -192,8 +305,7 @@ These invariants hold across `src/core` ↔ `router.md`:
 8. **The `answers` seam.** `RouterInterface.match`'s optional
    `RouterAnswers<Meta>` predicate is the single native-override point both
    faces compose differently: the `Dispatcher` passes a method-check, the
-   browser `Navigator` (see [`navigator.md`](navigator.md)) omits it entirely
-   — every path match answers.
+   browser `Navigator` omits it entirely — every path match answers.
 9. **Dispatch semantics (PROPOSAL §5.1).** A `HEAD` request with no explicit
    `HEAD` route runs the matching `GET` handler and strips the response
    body. An `OPTIONS` request with no explicit `OPTIONS` route answers `204`
@@ -216,6 +328,80 @@ These invariants hold across `src/core` ↔ `router.md`:
     `'unmatched'`/`'unmethoded'`) — AGENTS §13, no `error`/`observerError`
     domain event (listener errors route through the emitter's own `error`
     option).
+
+### Browser (Navigator)
+
+12. **Headless by design.** No `render`/`outlet`. The `Navigator` resolves,
+    tracks `active`, and emits `navigate`; rendering is entirely the
+    consumer's responsibility (PROPOSAL §5.2).
+13. **One shared engine.** Each route's `path` is registered once on the same
+    `Router` machine the core `Dispatcher` composes, keyed for dedup by its
+    `canonicalPath` (last write wins, replace-in-place). `Navigator` never
+    rebuilds matching logic of its own.
+14. **Modes.** `'hash'` (default) reads/writes `location.hash` and binds
+    `hashchange`; `'history'` reads/writes via `pushState`/`popstate`, with an
+    optional `base` path prefix stripped before matching and prepended when
+    navigating. `intercept: true` (`'history'` mode only) adds same-origin
+    `<a>` click interception — a plain left-click with no modifier keys, no
+    `target`, and no `download` attribute.
+15. **Fallback semantics.** A location that matches nothing resolves the
+    configured `fallback` pattern (default: the first route's path) through
+    the SAME engine. A `fallback` that ALSO matches no registered route
+    leaves `active` `undefined` and emits nothing — no phantom match is ever
+    fabricated.
+16. **Guard + supersede semantics.** An optional `guard(to, from, signal)` may
+    veto (or asynchronously veto) a navigation. The `Navigator` mints an
+    `@orkestrel/abort` handle per navigation and aborts the PREVIOUS handle
+    when a newer navigation starts (or on `stop`/`destroy`) — a guard verdict
+    that resolves after its navigation was superseded (`signal.aborted`) is
+    discarded, same as a synchronous `false`/rejected verdict: `active` stays
+    unchanged and nothing is emitted. A guard throw routes to the `error`
+    handler (not through the emitter's own `emit`) and vetoes.
+17. **Case-sensitive by default.** `sensitive: true` (forwarded to the
+    underlying `Router`) is the default; `sensitive: false` folds case during
+    matching.
+18. **Intercepted links carry pathname only (known limitation).** Click
+    interception passes only the intercepted link's `/`-prefixed pathname
+    through to `go` — a query string on the link's `href` is NOT preserved
+    (the pathname-only grammar §4 has no query concept). A consumer needing
+    query data reads it from `window.location.search` after navigating, or
+    skips interception for that link.
+19. **Only HTML `<a>` elements are intercepted (known limitation).** Click
+    interception ({@link findAnchor}) walks up the event's composed path for
+    an `HTMLAnchorElement` — an SVG `<a>` (`SVGAElement`) is NOT intercepted,
+    even inside a same-origin document, and falls through to the browser's
+    native navigation.
+
+### Server (Listener)
+
+20. **Signal fires on client disconnect.** `requestFrom` mints an
+    `@orkestrel/abort` handle and builds the `Request` over its `signal`; if
+    the underlying connection closes before the message finished
+    (`!message.complete`), the handle aborts — so `request.signal` fires the
+    fetch-standard way, with zero router-specific cancellation API.
+21. **Transport-level 500 is a last resort, not an error policy.**
+    `createListener`'s handler wraps `dispatcher.handle` in a try/catch purely
+    for the CONNECTION: when nothing has been sent yet, it writes a bare `500`
+    head and ends the response (never leaking a hanging socket); once headers
+    are already sent, it destroys the connection outright. The router still
+    owns no error POLICY — a consumer wanting mapped error responses installs
+    its own boundary around `dispatcher.handle` directly (the future
+    `@orkestrel/server` seam, PROPOSAL §7); a handler throw is NEVER silently
+    swallowed into a generic response by the core `Dispatcher` itself (Core
+    §9 above).
+22. **Streaming both ways.** `requestFrom` streams a body-carrying method's
+    message into the `Request` via a manual `ReadableStream` pump — a `for
+await` loop over the `IncomingMessage` enqueueing each chunk, with
+    `duplex: 'half'` set as Node's fetch implementation requires for a
+    streamed request body; `sendResponse` streams a non-`null` `Response`
+    body back to the `ServerResponse` chunk by chunk, ending the target when
+    the stream completes (or stopping cleanly, without throwing, if the
+    target was destroyed mid-stream by a client disconnect).
+23. **Header fidelity.** `requestFrom` copies every incoming header
+    (multi-value headers comma-joined, except `set-cookie`, appended
+    individually); `sendResponse` writes every outgoing header and re-derives
+    `set-cookie` via `Headers.getSetCookie()` so multiple response cookies
+    stay distinct instead of collapsing into one comma-joined header.
 
 ## Patterns
 
@@ -322,7 +508,7 @@ dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok
 dispatcher.destroy() // tears down the #emitter; router.entries() is still valid afterward
 ```
 
-### Practices
+### Practices (core)
 
 - **One engine, two seams** — compose `Router` directly for a method-less
   consumer (a Navigator), or through `Dispatcher` for method-dimensioned
@@ -333,6 +519,142 @@ dispatcher.destroy() // tears down the #emitter; router.entries() is still valid
   boundary; a consuming server installs its own around `handle`.
 - **Dedup with `key`, not manual lookups** — pass a `key` function instead of
   checking `router.entries()` before every `add`.
+
+### Hash-mode navigation
+
+```ts
+import { createNavigator } from '@src/browser'
+
+const navigator = createNavigator({
+	routes: [
+		{ path: '/', meta: { title: 'Home' } },
+		{ path: '/about', meta: { title: 'About' } },
+	],
+})
+navigator.emitter.on('navigate', (match) => (document.title = match.meta.title))
+navigator.start()
+navigator.go('/about')
+navigator.active?.path // '/about'
+navigator.stop()
+navigator.destroy() // stop() plus tear down the #emitter
+```
+
+### History mode with link interception
+
+```ts
+import { createNavigator } from '@src/browser'
+
+const navigator = createNavigator({
+	routes: [{ path: '/users/:id', meta: { title: 'User' } }],
+	mode: 'history',
+	base: '/app',
+	intercept: true,
+})
+navigator.start() // binds popstate + same-origin <a> click interception
+```
+
+### Guarding navigation (auth walls)
+
+A guard may veto synchronously or asynchronously; a superseded guard's
+verdict is discarded via its own `signal`.
+
+```ts
+import { createNavigator } from '@src/browser'
+
+const navigator = createNavigator({
+	routes: [
+		{ path: '/private', meta: { title: 'Private' } },
+		{ path: '/', meta: { title: 'Home' } },
+	],
+	guard: async (to, _from, signal) => {
+		const allowed = await checkAuth({ signal }) // cancels its own work if superseded
+		return signal.aborted ? false : allowed
+	},
+})
+navigator.start()
+```
+
+### Practices (Navigator)
+
+- **Never build a second registry** — compose the same core `Router` other
+  faces use; a `Navigator` never hand-rolls its own path matching.
+- **Thread `signal` into async guard work** — a slow guard can cancel its own
+  work when it observes `signal.aborted`, closing the stale-guard race.
+- **Keep rendering outside the Navigator** — subscribe to `navigate` and
+  render in the consumer, never inside this headless entity.
+- **`stop()`/`destroy()` before disposal** — releases listeners and aborts
+  any pending guard; `destroy()` also tears down the `#emitter`.
+
+### Basic server
+
+```ts
+import { createListener } from '@src/server'
+import { createDispatcher } from '@src/core'
+import http from 'node:http'
+
+const dispatcher = createDispatcher<{ readonly requestId: string }>()
+dispatcher.add({
+	method: 'GET',
+	path: '/users/:id',
+	handler: (_request, context) =>
+		Response.json({ id: context.params.id, requestId: context.state.requestId }),
+})
+
+const server = http.createServer(
+	createListener(dispatcher, () => ({ requestId: crypto.randomUUID() })),
+)
+server.listen(0)
+```
+
+### Converting requests and responses directly
+
+For a runtime seam that needs finer control than `createListener` (custom
+error handling around `dispatcher.handle`, for instance), compose
+`requestFrom`/`sendResponse` directly:
+
+```ts
+import { requestFrom, sendResponse } from '@src/server'
+import { createDispatcher } from '@src/core'
+import http from 'node:http'
+
+const dispatcher = createDispatcher()
+dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
+
+const server = http.createServer(async (incoming, target) => {
+	const request = requestFrom(incoming, { origin: 'https://api.example.com' })
+	try {
+		const response = await dispatcher.handle(request, undefined)
+		await sendResponse(response, target)
+	} catch (error) {
+		target.writeHead(500).end(String(error)) // this consumer's own error policy
+	}
+})
+server.listen(0)
+```
+
+### Observing client disconnect
+
+```ts
+import { requestFrom } from '@src/server'
+import http from 'node:http'
+
+const server = http.createServer((incoming) => {
+	const request = requestFrom(incoming)
+	request.signal.addEventListener('abort', () => console.log('client disconnected'))
+})
+```
+
+### Practices (Listener)
+
+- **Prefer `createListener` for the common case** — it wires conversion,
+  dispatch, and the transport-level last-resort `500` together correctly.
+- **Install your own error boundary for mapped error responses** — the
+  router (core and this adapter) never invents one; a handler throw
+  propagates.
+- **Thread `request.signal` into downstream work** — a handler can cancel
+  its own I/O when the client disconnects, the fetch-standard idiom.
+- **Skip this face entirely on fetch-native runtimes** — Bun, Deno, and
+  workers hand `Request`s to `dispatcher.handle` directly.
 
 ## Tests
 
@@ -348,6 +670,22 @@ dispatcher.destroy() // tears down the #emitter; router.entries() is still valid
   `decodeParam` (including a malformed `%` escape), `matchPath`,
   `classifySegment` (the literal-vs-param classification fix regression
   case), `pathSpecificity`, `compareSpecificity`, and `joinPaths`.
+- [`tests/src/browser/Navigator.test.ts`](../../tests/src/browser/Navigator.test.ts) —
+  hash and history modes, `go`/`active`/`navigate` events, fallback semantics,
+  guard veto (sync + async, including supersede-discard), link interception
+  on/off, `start`/`stop`/`destroy` idempotence, and `NavigatorInterface`
+  conformance.
+- [`tests/src/browser/factories.test.ts`](../../tests/src/browser/factories.test.ts) —
+  `createNavigator` returns a working `NavigatorInterface`.
+- [`tests/src/browser/helpers.test.ts`](../../tests/src/browser/helpers.test.ts) —
+  `hashPath`, `locationPath` (hash + history, with/without `base`), and
+  `findAnchor` (including a click on a styled child inside an anchor).
+- [`tests/src/server/helpers.test.ts`](../../tests/src/server/helpers.test.ts) —
+  `isEncryptedSocket`, `requestFrom` fidelity (method, URL from `Host`,
+  headers including multi-value and `set-cookie`, body streaming, the
+  disconnect-aborts-`signal` case), `sendResponse` (status, headers including
+  `set-cookie`, streamed and empty bodies, a destroyed target mid-stream),
+  and `createListener` end-to-end round-trips over real `node:http` sockets.
 
 ## See also
 
@@ -355,9 +693,10 @@ dispatcher.destroy() // tears down the #emitter; router.entries() is still valid
   contract & validation architecture, §21 "one engine, native overrides",
   §22 documentation-as-contracts.
 - [`PROPOSAL.md`](../../PROPOSAL.md) — §4 path grammar, §5.1 the core public
-  API and dispatch semantics.
-- [`navigator.md`](navigator.md) — the browser face composing this same
-  `Router` engine.
-- [`listener.md`](listener.md) — the server face converting `node:http`
-  messages into `Dispatcher.handle` calls.
+  API and dispatch semantics, §5.2 the browser face, §5.3 the server
+  adapter's public API.
+- [`abort.md`](abort.md) — `@orkestrel/abort`, the supersede-safe guard
+  cancellation primitive the Navigator composes, and the client-disconnect
+  cancellation primitive the Listener composes.
 - [`README.md`](../README.md) — the guides index.
+</content>
