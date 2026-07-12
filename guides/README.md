@@ -1,8 +1,23 @@
 # Guides
 
-An index into this repository's guides — by concept, and by directory (AGENTS §22).
-Concept and directory rows will be added once the public API design lands and
-`src/` exists; for now this index covers only the dependency mirrors below.
+A dual-axis index into this repository's guides — by concept, and by
+directory (AGENTS §22).
+
+## By concept
+
+| Concept   | Spec                                   | Source                          | Tests                                       |
+| --------- | -------------------------------------- | ------------------------------- | ------------------------------------------- |
+| Router    | [`src/router.md`](src/router.md)       | [`src/core`](../src/core)       | [`tests/src/core`](../tests/src/core)       |
+| Navigator | [`src/navigator.md`](src/navigator.md) | [`src/browser`](../src/browser) | [`tests/src/browser`](../tests/src/browser) |
+| Listener  | [`src/listener.md`](src/listener.md)   | [`src/server`](../src/server)   | [`tests/src/server`](../tests/src/server)   |
+
+## By directory
+
+| Directory     | Guide                                  |
+| ------------- | -------------------------------------- |
+| `src/core`    | [`src/router.md`](src/router.md)       |
+| `src/browser` | [`src/navigator.md`](src/navigator.md) |
+| `src/server`  | [`src/listener.md`](src/listener.md)   |
 
 ## Dependency reference
 
@@ -18,6 +33,13 @@ the primitives it is built from without leaving this guide set.
 listener-isolation contract), not anything sourced in this repo; it is kept here
 so a reader of this package can see the primitives it is built from without
 leaving this guide set.
+
+[`src/abort.md`](src/abort.md) is a byte-identical mirror of the guide for
+`@orkestrel/abort` — this package's third runtime dependency. It documents
+**that package's** surface (the `Abort` class, `AbortInterface`, and the
+parent-linking / cascading-cancellation contract), not anything sourced in
+this repo; it is kept here so a reader of this package can see the primitives
+it is built from without leaving this guide set.
 
 [`src/guide.md`](src/guide.md) is a byte-identical mirror of the guide for
 `@orkestrel/guide` — the devDependency powering this repo's guides-parity test

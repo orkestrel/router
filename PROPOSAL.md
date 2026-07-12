@@ -2,7 +2,7 @@
 
 A typed, environment-agnostic routing library: one pure matching-and-registry
 core, a browser navigation face, and a server dispatch face — the router the
-server *consumes*, never the server itself.
+server _consumes_, never the server itself.
 
 > **Status: awaiting approval.** The `old/` folder (the original implementation,
 > kept for reference) is deleted the moment this proposal is approved and the
@@ -27,7 +27,7 @@ MCP constants — a router that could not ship without its consumers.
 Three structural failures, in the philosophy's own terms:
 
 1. **It did not stay a module the server consumes — it became the server.**
-   The `src/server` face *was* the framework, so the router could never be
+   The `src/server` face _was_ the framework, so the router could never be
    isolated, independently versioned, or reused.
 2. **It did not rigorously push into core before branching.** Only the matcher
    went down. The registry concept was built twice (the browser inlined a
@@ -41,7 +41,7 @@ Three structural failures, in the philosophy's own terms:
    (`go/active/start` vs `add/allow/routes/group`), and observability on one
    face only.
 
-What *was* right — and survives: the pure core engine (compile → match →
+What _was_ right — and survives: the pure core engine (compile → match →
 specificity, with the `answers` predicate as the single server/browser seam),
 its excellent test suite, the literal-over-param order-independent precedence,
 tolerant percent-decoding, trailing-slash folding, and the server's
@@ -51,7 +51,7 @@ tolerant percent-decoding, trailing-slash folding, and the server's
 
 - **Core-first, proven by construction.** Anything that runs on web-standard
   primitives available in every environment lives in `src/core`. The faces hold
-  only what is *physically* environment-bound: `window`/`history`/DOM events in
+  only what is _physically_ environment-bound: `window`/`history`/DOM events in
   the browser, `node:http` message conversion on the server.
 - **One mental model, three faces.** A single registry-and-match entity
   (`Router`) in core; both faces compose it and expose it readonly, so route
@@ -63,7 +63,7 @@ tolerant percent-decoding, trailing-slash folding, and the server's
   everything else.
 - **Web-standards-first.** Fetch `Request`/`Response` as the dispatch
   vocabulary (WinterTC minimum common API — Node ≥ 24, Deno, Bun, workers,
-  browsers), URLPattern-*style* authored syntax, History API baseline in the
+  browsers), URLPattern-_style_ authored syntax, History API baseline in the
   browser. But dispatch is **never** delegated to `URLPattern` (no precedence,
   regex-per-component performance, ReDoS class) — core owns its matcher.
 - **Sibling integration where honest.** `@orkestrel/emitter` for the two
@@ -104,11 +104,11 @@ honestly tiny: message-format conversion, nothing else.
 
 Environment assumptions per face (config ground truth):
 
-| Face | May assume | Must not touch |
-| --- | --- | --- |
-| core | ESNext + runtime-universal web globals (`URL`, `URLSearchParams`, `Request`, `Response`, `AbortSignal`, `decodeURIComponent`) | DOM (`window`, `document`, `history`), `node:*` |
-| browser | DOM + core | `node:*` |
-| server | `node:*` + core | DOM |
+| Face    | May assume                                                                                                                    | Must not touch                                  |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| core    | ESNext + runtime-universal web globals (`URL`, `URLSearchParams`, `Request`, `Response`, `AbortSignal`, `decodeURIComponent`) | DOM (`window`, `document`, `history`), `node:*` |
+| browser | DOM + core                                                                                                                    | `node:*`                                        |
+| server  | `node:*` + core                                                                                                               | DOM                                             |
 
 ## 4. Path grammar (one grammar, both faces)
 
@@ -137,7 +137,7 @@ Environment assumptions per face (config ground truth):
   tolerated as a literal (never throws) — the old `decodeParam` contract, kept.
 - **Fixes over the old engine.** `escapeRegExp` folds into core `helpers.ts`
   (the old core reached up to an undocumented `src/helpers.ts`); the
-  `pathSpecificity` bug where any segment *containing* `:` ranked as a param
+  `pathSpecificity` bug where any segment _containing_ `:` ranked as a param
   (while `compilePath` only rewrote syntactically valid `:name` heads) is fixed
   — classification and compilation share one segment parser.
 
@@ -212,11 +212,13 @@ interface RouteContext<Path extends string = string, TState = undefined> {
 	readonly params: PathParams<Path>
 	readonly pattern: string
 	readonly url: URL
-	readonly state: TState          // opaque consumer pass-through from handle()
+	readonly state: TState // opaque consumer pass-through from handle()
 }
 
-type RouteHandler<Path extends string = string, TState = undefined> =
-	(request: Request, context: RouteContext<Path, TState>) => Response | Promise<Response>
+type RouteHandler<Path extends string = string, TState = undefined> = (
+	request: Request,
+	context: RouteContext<Path, TState>,
+) => Response | Promise<Response>
 
 interface RouteInput<Path extends string = string, TState = undefined> {
 	readonly method: Method
@@ -238,14 +240,14 @@ type DispatcherEventMap = {
 interface DispatcherOptions<TState> {
 	readonly routes?: readonly RouteInput<string, TState>[]
 	readonly sensitive?: boolean
-	readonly unmatched?: (request: Request) => Response | Promise<Response>   // default: 404
+	readonly unmatched?: (request: Request) => Response | Promise<Response> // default: 404
 	readonly unmethoded?: (request: Request, allow: readonly Method[]) => Response | Promise<Response> // default: 405 + Allow
 	readonly on?: EmitterHooks<DispatcherEventMap>
 	readonly error?: EmitterErrorHandler
 }
 
 interface DispatcherInterface<TState = undefined> {
-	readonly router: RouterInterface<RouteRecord<TState>>  // readonly introspection, same object
+	readonly router: RouterInterface<RouteRecord<TState>> // readonly introspection, same object
 	readonly emitter: EmitterInterface<DispatcherEventMap>
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: readonly RouteInput<string, TState>[]): void
@@ -262,7 +264,7 @@ Dispatch semantics (preserved from the old `RouteManager`, re-shaped to fetch):
   (`new Response(null, …)` with the handler's status/headers).
 - `OPTIONS` with no explicit route answers `204` with the derived `Allow` set.
 - Path-matches-but-method-doesn't → the `unmethoded` responder (default `405`
-  + `Allow`, derived from `router.entries(pathname)` — `GET` advertises `HEAD`).
+  - `Allow`, derived from `router.entries(pathname)` — `GET` advertises `HEAD`).
 - Nothing matches → the `unmatched` responder (default `404`).
 - **A handler throw propagates to the caller.** The dispatcher never invents an
   error boundary — mapping throws to responses is the consuming server's
@@ -274,7 +276,9 @@ Dispatch semantics (preserved from the old `RouteManager`, re-shaped to fetch):
 ```ts
 // factories.ts
 function createRouter<Meta>(options?: RouterOptions<Meta>): RouterInterface<Meta>
-function createDispatcher<TState = undefined>(options?: DispatcherOptions<TState>): DispatcherInterface<TState>
+function createDispatcher<TState = undefined>(
+	options?: DispatcherOptions<TState>,
+): DispatcherInterface<TState>
 ```
 
 Pattern helpers stay individually exported per §5 (`compilePath`, `matchPath`,
@@ -293,28 +297,28 @@ type NavigatorMode = 'hash' | 'history'
 
 interface NavigatorOptions<Meta> {
 	readonly routes: readonly RouteEntry<Meta>[]
-	readonly mode?: NavigatorMode          // default 'hash' (zero server config); 'history' uses pushState/popstate
-	readonly base?: string                 // history-mode base path prefix
-	readonly fallback?: string             // pattern to resolve on a miss; default: first route's path
+	readonly mode?: NavigatorMode // default 'hash' (zero server config); 'history' uses pushState/popstate
+	readonly base?: string // history-mode base path prefix
+	readonly fallback?: string // pattern to resolve on a miss; default: first route's path
 	readonly guard?: (
 		to: RouterMatch<Meta>,
 		from: RouterMatch<Meta> | undefined,
-		signal: AbortSignal,               // fires when a newer navigation supersedes this one
+		signal: AbortSignal, // fires when a newer navigation supersedes this one
 	) => boolean | Promise<boolean>
-	readonly intercept?: boolean           // opt-in same-origin <a> click interception (history mode)
+	readonly intercept?: boolean // opt-in same-origin <a> click interception (history mode)
 	readonly sensitive?: boolean
 	readonly on?: EmitterHooks<NavigatorEventMap<Meta>>
 	readonly error?: EmitterErrorHandler
 }
 
 interface NavigatorInterface<Meta> {
-	readonly router: RouterInterface<RouteEntry<Meta>>   // same registry object, readonly
+	readonly router: RouterInterface<RouteEntry<Meta>> // same registry object, readonly
 	readonly emitter: EmitterInterface<NavigatorEventMap<Meta>>
 	readonly active: RouterMatch<Meta> | undefined
-	start(): void          // begin listening (hashchange / popstate + interception) and resolve now
+	start(): void // begin listening (hashchange / popstate + interception) and resolve now
 	stop(): void
 	go(path: string): void // navigate programmatically (sets hash / pushState → resolve)
-	match(path: string): RouterMatch<Meta> | undefined    // pure lookup, no side effects
+	match(path: string): RouterMatch<Meta> | undefined // pure lookup, no side effects
 	destroy(): void
 }
 ```
@@ -327,7 +331,7 @@ Deliberate changes from the old browser router:
   reusable instead of a mini-framework.
 - **History mode joins hash mode.** `mode: 'history'` uses
   `pushState`/`popstate` with an optional `base`; `intercept: true` adds
-  same-origin link interception. The Navigation API is *not* a build target in
+  same-origin link interception. The Navigation API is _not_ a build target in
   v1 (Safari's `precommitHandler` gap makes it unsafe as a sole substrate);
   the `mode` union leaves room for a `'navigation'` enhancement later without
   reshaping the surface.
@@ -445,23 +449,23 @@ The router's contract with its eventual primary consumer:
 Ordered units with disjoint ownership (the emitter/abort/budget/timeout
 playbook):
 
-| Unit | Owns | Content | Accept |
-| --- | --- | --- | --- |
-| U0 | `src/core/types.ts`, `constants.ts`, `package.json` (deps line) | Full type surface incl. `PathParams`, method set, tiers; add `@orkestrel/abort` to dependencies + regenerate lockfile | `check:src:core` clean, `npm ci` green |
-| U1 | `src/core/helpers.ts` | Pattern functions (port + `escapeRegExp` fold-in + wildcard + specificity fix + `joinPaths`) | helpers unit tests green |
-| U2 | `src/core/Router.ts` | Registry + dedup-key + groups + match (composes U1) | old acceptance cases green |
-| U3 | `src/core/Dispatcher.ts`, `factories.ts`, `index.ts` | Fetch dispatch + emitter + factories + barrel | dispatcher suite green |
-| U4 | `src/browser/**` | `Navigator` + hash/history helpers + factories + barrel | browser project green (Chromium) |
-| U5 | `src/server/**` | `requestFrom`/`sendResponse`/`createListener` | server project green (socket round-trip) |
-| U6 | `tests/**` expansion | Type-level suites, adversarial inputs, cross-face grammar parity | full `npm test` green |
-| U7 | `guides/**`, parity test | Three guides + manifest + parity adoption + `abort.md` dependency mirror (synced byte-identical from the abort repo) with its `guides/README.md` reference paragraph | `test:guides` green |
-| U8 | — | Delete `old/`; verifier sweep; checker + opus reviewer; push | all gates green, review PASS |
+| Unit | Owns                                                            | Content                                                                                                                                                              | Accept                                   |
+| ---- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| U0   | `src/core/types.ts`, `constants.ts`, `package.json` (deps line) | Full type surface incl. `PathParams`, method set, tiers; add `@orkestrel/abort` to dependencies + regenerate lockfile                                                | `check:src:core` clean, `npm ci` green   |
+| U1   | `src/core/helpers.ts`                                           | Pattern functions (port + `escapeRegExp` fold-in + wildcard + specificity fix + `joinPaths`)                                                                         | helpers unit tests green                 |
+| U2   | `src/core/Router.ts`                                            | Registry + dedup-key + groups + match (composes U1)                                                                                                                  | old acceptance cases green               |
+| U3   | `src/core/Dispatcher.ts`, `factories.ts`, `index.ts`            | Fetch dispatch + emitter + factories + barrel                                                                                                                        | dispatcher suite green                   |
+| U4   | `src/browser/**`                                                | `Navigator` + hash/history helpers + factories + barrel                                                                                                              | browser project green (Chromium)         |
+| U5   | `src/server/**`                                                 | `requestFrom`/`sendResponse`/`createListener`                                                                                                                        | server project green (socket round-trip) |
+| U6   | `tests/**` expansion                                            | Type-level suites, adversarial inputs, cross-face grammar parity                                                                                                     | full `npm test` green                    |
+| U7   | `guides/**`, parity test                                        | Three guides + manifest + parity adoption + `abort.md` dependency mirror (synced byte-identical from the abort repo) with its `guides/README.md` reference paragraph | `test:guides` green                      |
+| U8   | —                                                               | Delete `old/`; verifier sweep; checker + opus reviewer; push                                                                                                         | all gates green, review PASS             |
 
 U0→U1→U2→U3 serial (each consumes the last); U4 ∥ U5 after U3; U6 after U4+U5;
 U7 ∥ U6; U8 last. Config note: the tri-face configs are already correct and
 untouched; the one open config nuance is that AGENTS §17.5's table mentions a
 CJS core while the actual build emits ES (`dist/src/core/index.js`) with the
-server face building CJS — the implementation follows the *configs* (they are
+server face building CJS — the implementation follows the _configs_ (they are
 the user-corrected ground truth), and the guide documents that.
 
 ## 10. Open decisions (approval requested)
@@ -484,14 +488,14 @@ the user-corrected ground truth), and the guide documents that.
 
 ## Appendix — old-code disposition
 
-| Old module | Disposition |
-| --- | --- |
-| `core/helpers.ts`, `RouteMatcher.ts`, `types.ts`, `factories.ts` | **Salvage** — port into U1/U2 near-verbatim, with the two fixes (escapeRegExp fold-in, specificity classification) and wildcard support |
-| `tests/src/core/RouteMatcher.test.ts` | **Salvage** — becomes the U2 acceptance spec |
-| `browser/Router.ts` shape (`start/stop/go/active/match/emitter`) | **Salvage** — the `Navigator` surface template; render/outlet cut |
-| `server/RouteManager.ts` semantics (auto-HEAD, 405/`Allow`, dedup) | **Salvage** — re-shaped into `Dispatcher` over fetch vocabulary |
-| `server/RouteGroup.ts` | **Salvage** — promoted to core `Router.group` |
-| `server/Route.ts`, `RouteHandlerContext.ts` | **Kill** — replaced by fetch `Request`/`RouteContext` |
-| `server/types.ts`/`helpers.ts`/`constants.ts`/`errors.ts`/`factories.ts` framework surface (sessions, tokens, cookies, CSRF, CORS, security headers, ETag, Range, static, compression, negotiation, multipart, SSE, upgrade, body parsing, `Server`, `MiddlewareManager`) | **Kill here; salvage donor for `@orkestrel/server`** — none of it is routing |
-| Database/session store coupling, MCP references | **Kill** — dependency inversions |
-| Reserved wildcard tier 0 (speculative) | **Replaced** — wildcard ships as a real feature |
+| Old module                                                                                                                                                                                                                                                                | Disposition                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/helpers.ts`, `RouteMatcher.ts`, `types.ts`, `factories.ts`                                                                                                                                                                                                          | **Salvage** — port into U1/U2 near-verbatim, with the two fixes (escapeRegExp fold-in, specificity classification) and wildcard support |
+| `tests/src/core/RouteMatcher.test.ts`                                                                                                                                                                                                                                     | **Salvage** — becomes the U2 acceptance spec                                                                                            |
+| `browser/Router.ts` shape (`start/stop/go/active/match/emitter`)                                                                                                                                                                                                          | **Salvage** — the `Navigator` surface template; render/outlet cut                                                                       |
+| `server/RouteManager.ts` semantics (auto-HEAD, 405/`Allow`, dedup)                                                                                                                                                                                                        | **Salvage** — re-shaped into `Dispatcher` over fetch vocabulary                                                                         |
+| `server/RouteGroup.ts`                                                                                                                                                                                                                                                    | **Salvage** — promoted to core `Router.group`                                                                                           |
+| `server/Route.ts`, `RouteHandlerContext.ts`                                                                                                                                                                                                                               | **Kill** — replaced by fetch `Request`/`RouteContext`                                                                                   |
+| `server/types.ts`/`helpers.ts`/`constants.ts`/`errors.ts`/`factories.ts` framework surface (sessions, tokens, cookies, CSRF, CORS, security headers, ETag, Range, static, compression, negotiation, multipart, SSE, upgrade, body parsing, `Server`, `MiddlewareManager`) | **Kill here; salvage donor for `@orkestrel/server`** — none of it is routing                                                            |
+| Database/session store coupling, MCP references                                                                                                                                                                                                                           | **Kill** — dependency inversions                                                                                                        |
+| Reserved wildcard tier 0 (speculative)                                                                                                                                                                                                                                    | **Replaced** — wildcard ships as a real feature                                                                                         |
