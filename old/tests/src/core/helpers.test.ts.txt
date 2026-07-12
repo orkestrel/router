@@ -1,0 +1,213 @@
+import { describe, expect, it } from 'vitest'
+import {
+	canonicalPath,
+	compareSpecificity,
+	compilePath,
+	decodeParam,
+	matchPath,
+	pathSpecificity,
+} from '@src/core'
+
+// The router engine's PURE primitives — the frozen, environment-agnostic contract
+// extracted from the http route matcher (§16 mirrors helpers.ts). Every replicated
+// behavior is pinned here: compile → anchored regex + ordered params, single-segment
+// `([^/]+)` capture, literal-around-param, trailing-slash insensitivity with the root
+// `/` exempt, URL-decode + malformed-`%` tolerance, and the specificity comparator
+// (literal-over-param, order-independent).
+
+describe('compilePath — anchored regex + ordered params', () => {
+	it('compiles a static path to an anchored regex with no params', () => {
+		const { regex, params } = compilePath('/users')
+		expect(params).toEqual([])
+		expect(regex.test('/users')).toBe(true)
+		expect(regex.test('/users/7')).toBe(false) // not a prefix match
+		expect(regex.test('/user')).toBe(false)
+	})
+
+	it('captures a single `:name` segment as `([^/]+)` and names it', () => {
+		const { regex, params } = compilePath('/users/:id')
+		expect(params).toEqual(['id'])
+		const result = regex.exec('/users/7')
+		expect(result?.[1]).toBe('7')
+	})
+
+	it('keeps each param to ONE segment — `([^/]+)` never crosses a `/`', () => {
+		const { regex } = compilePath('/users/:id')
+		expect(regex.test('/users/7')).toBe(true)
+		expect(regex.test('/users/7/posts')).toBe(false) // the slash bounds the capture
+	})
+
+	it('lists multiple param names in order', () => {
+		const { regex, params } = compilePath('/users/:id/posts/:slug')
+		expect(params).toEqual(['id', 'slug'])
+		const result = regex.exec('/users/7/posts/hello')
+		expect([result?.[1], result?.[2]]).toEqual(['7', 'hello'])
+	})
+
+	it('matches literal text around a param (`/files/:name.json`)', () => {
+		const { regex, params } = compilePath('/files/:name.json')
+		expect(params).toEqual(['name'])
+		const result = regex.exec('/files/report.json')
+		expect(result?.[1]).toBe('report')
+		expect(regex.test('/files/report.csv')).toBe(false) // the `.json` literal is required
+	})
+
+	it('escapes regex metacharacters in the literal parts', () => {
+		// A `.` in a literal segment must match a literal dot, not any char.
+		const { regex } = compilePath('/a.b')
+		expect(regex.test('/a.b')).toBe(true)
+		expect(regex.test('/axb')).toBe(false)
+	})
+
+	it('is trailing-slash INSENSITIVE — `/users` matches `/users` and `/users/`', () => {
+		const { regex } = compilePath('/users')
+		expect(regex.test('/users')).toBe(true)
+		expect(regex.test('/users/')).toBe(true)
+	})
+
+	it('folds the pattern OWN trailing slash — `/users/` compiles like `/users`', () => {
+		const { regex } = compilePath('/users/')
+		expect(regex.test('/users')).toBe(true)
+		expect(regex.test('/users/')).toBe(true)
+		expect(regex.test('/users/x')).toBe(false)
+	})
+
+	it('allows an optional trailing slash on a parameterized path', () => {
+		const { regex } = compilePath('/users/:id')
+		expect(regex.test('/users/me')).toBe(true)
+		expect(regex.test('/users/me/')).toBe(true)
+	})
+
+	it('keeps the ROOT `/` anchored exactly — matches only `/`, NOT a bare `/?`', () => {
+		const { regex } = compilePath('/')
+		expect(regex.test('/')).toBe(true)
+		expect(regex.test('')).toBe(false) // `''` must NOT match `/` (no optional-slash suffix)
+		expect(regex.test('/x')).toBe(false)
+	})
+
+	it('keeps the EMPTY pattern anchored exactly — matches only the empty string', () => {
+		const { regex } = compilePath('')
+		expect(regex.test('')).toBe(true)
+		expect(regex.test('/')).toBe(false) // `/` must NOT match the empty pattern
+	})
+
+	it('is NOT prefix matching — a deeper path is a distinct segment', () => {
+		const { regex } = compilePath('/api')
+		expect(regex.test('/api/users')).toBe(false)
+	})
+})
+
+describe('canonicalPath — the registry-identity trailing-slash fold', () => {
+	it('strips one trailing slash', () => {
+		expect(canonicalPath('/users/')).toBe('/users')
+	})
+
+	it('leaves a slash-less path unchanged', () => {
+		expect(canonicalPath('/users')).toBe('/users')
+	})
+
+	it('exempts the root `/` and the empty pattern', () => {
+		expect(canonicalPath('/')).toBe('/')
+		expect(canonicalPath('')).toBe('')
+	})
+
+	it('agrees with compilePath — both forms compile to the same regex source', () => {
+		expect(compilePath('/users/').regex.source).toBe(compilePath('/users').regex.source)
+	})
+})
+
+describe('matchPath — param extraction + URL-decode', () => {
+	it('returns the decoded params on a hit', () => {
+		expect(matchPath(compilePath('/users/:id'), '/users/7')).toEqual({ id: '7' })
+	})
+
+	it('returns an EMPTY record for a parameterless match', () => {
+		expect(matchPath(compilePath('/users'), '/users')).toEqual({})
+	})
+
+	it('returns undefined on a miss', () => {
+		expect(matchPath(compilePath('/users/:id'), '/posts/7')).toBeUndefined()
+	})
+
+	it('URL-decodes each param value', () => {
+		// `%2F` is an encoded slash WITHIN one segment — decoded after capture.
+		expect(matchPath(compilePath('/users/:id'), '/users/a%2Fb')).toEqual({ id: 'a/b' })
+		expect(matchPath(compilePath('/q/:term'), '/q/hello%20world')).toEqual({ term: 'hello world' })
+	})
+
+	it('tolerates a malformed `%`-escape — it stays literal, the match still succeeds', () => {
+		// `%zz` is not valid percent-encoding; decodeURIComponent would throw — kept raw.
+		expect(matchPath(compilePath('/users/:id'), '/users/%zz')).toEqual({ id: '%zz' })
+		expect(matchPath(compilePath('/users/:id'), '/users/100%')).toEqual({ id: '100%' })
+	})
+
+	it('extracts multiple params positionally', () => {
+		expect(matchPath(compilePath('/users/:id/posts/:slug'), '/users/7/posts/hello')).toEqual({
+			id: '7',
+			slug: 'hello',
+		})
+	})
+
+	it('matches with the optional trailing slash and still extracts params', () => {
+		expect(matchPath(compilePath('/users/:id'), '/users/7/')).toEqual({ id: '7' })
+	})
+})
+
+describe('decodeParam — total URL-decode', () => {
+	it('decodes valid percent-encoding', () => {
+		expect(decodeParam('a%2Fb')).toBe('a/b')
+		expect(decodeParam('caf%C3%A9')).toBe('café')
+	})
+
+	it('falls back to the raw value on a malformed escape (never throws)', () => {
+		expect(decodeParam('%zz')).toBe('%zz')
+		expect(decodeParam('100%')).toBe('100%')
+	})
+
+	it('passes through a value with no escapes', () => {
+		expect(decodeParam('plain')).toBe('plain')
+	})
+})
+
+describe('pathSpecificity — the per-segment tier vector', () => {
+	// `'/users/me'.split('/')` is `['', 'users', 'me']` — the leading empty segment (before
+	// the first `/`) is a literal (2), exactly as the http original produces. It is the same
+	// for EVERY absolute path, so it is rank-neutral in `compareSpecificity`.
+	it('ranks a literal segment 2 and a param segment 1 (leading-empty literal included)', () => {
+		expect(pathSpecificity('/users/me')).toEqual([2, 2, 2])
+		expect(pathSpecificity('/users/:id')).toEqual([2, 2, 1])
+	})
+
+	it('treats a literal-around-param segment (`:name.json`) as a param (1)', () => {
+		expect(pathSpecificity('/files/:name.json')).toEqual([2, 2, 1])
+	})
+
+	it('vectors every segment of a deeper path', () => {
+		expect(pathSpecificity('/a/:b/c/:d')).toEqual([2, 2, 1, 2, 1])
+	})
+})
+
+describe('compareSpecificity — literal-over-param, order-independent', () => {
+	it('ranks a literal MORE specific than a param at the differing segment', () => {
+		// negative ⇒ `a` (the literal) out-ranks `b` (the param).
+		expect(compareSpecificity('/users/me', '/users/:id')).toBeLessThan(0)
+		expect(compareSpecificity('/users/:id', '/users/me')).toBeGreaterThan(0)
+	})
+
+	it('returns 0 for two equally-specific paths', () => {
+		expect(compareSpecificity('/users/:id', '/teams/:id')).toBe(0)
+		expect(compareSpecificity('/a/b', '/c/d')).toBe(0)
+	})
+
+	it('compares LEFT-TO-RIGHT — the FIRST differing segment decides', () => {
+		// `/a/:b/c` vs `/a/x/:d`: index 1 is param-vs-literal, so the second wins there.
+		expect(compareSpecificity('/a/:b/c', '/a/x/:d')).toBeGreaterThan(0)
+		expect(compareSpecificity('/a/x/:d', '/a/:b/c')).toBeLessThan(0)
+	})
+
+	it('treats the LONGER (more-segmented) path as more specific on a prefix tie', () => {
+		// Different segment counts (can't happen for one concrete pathname, but total).
+		expect(compareSpecificity('/a/b', '/a')).toBeLessThan(0)
+		expect(compareSpecificity('/a', '/a/b')).toBeGreaterThan(0)
+	})
+})

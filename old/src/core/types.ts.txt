@@ -1,0 +1,140 @@
+// ============================================================================
+//  The path-matching engine — type definitions (the §5 source of truth).
+//
+//  `router` is a PURE, environment-agnostic path-matching ENGINE: it compiles a
+//  route path pattern (`/users/:id`) into an anchored regex + ordered param
+//  names, extracts URL-decoded params from a concrete pathname, and ranks
+//  several matching patterns by SPECIFICITY (a literal segment beats a param,
+//  registration-order-independent). It speaks only `string` / `RegExp` /
+//  `Record` — NO DOM, NO `node:*` — so the SAME engine drives both a
+//  method-dimensioned server router (the http `RouteManager`) and a method-less
+//  browser SPA router. The §21 "one engine, native overrides" seam is the
+//  OPTIONAL `answers` predicate a `RouteMatcher` entry carries: a server passes a
+//  method-check, a browser omits it (every entry always answers).
+//
+//  Three type groups live here, all `readonly` per AGENTS §11:
+//
+//    1. The compiled-path value (`CompiledPath`) — an anchored `regex` + ordered
+//       `params`, the once-per-path compile output `matchPath` runs.
+//    2. The match value (`RouteMatch<Meta>`) — a winning entry's `meta` + decoded
+//       `params`, what `RouteMatcher.match` returns on a hit.
+//    3. The entity surface (`RouteEntry<Meta>` / `RouteMatcherInterface<Meta>` /
+//       `RouteMatcherAnswers<Meta>`) — the registry of `{ path, meta }` entries
+//       (each path compiled once) and the most-specific-match scan over them,
+//       with the `answers` override seam.
+// ============================================================================
+
+/**
+ * A compiled route path — the anchored regex plus its ordered param names.
+ *
+ * @remarks
+ * The once-per-path compile output of {@link import('./helpers.js').compilePath}:
+ * `regex` is anchored (`^…$`) and matches the WHOLE pathname (with an optional
+ * trailing slash), and `params` lists each `:name` segment's name in order, so a
+ * `regex.exec` result's capture groups line up with `params` positionally (the
+ * walk {@link import('./helpers.js').matchPath} performs). Plain data — no behavior.
+ */
+export interface CompiledPath {
+	readonly regex: RegExp
+	readonly params: readonly string[]
+}
+
+/**
+ * One matched route — the winning entry's `meta` payload plus the URL-decoded
+ * params extracted from the concrete pathname.
+ *
+ * @typeParam Meta - The payload an entry carries (a route handler + method on the
+ *   server, a component / loader on the browser)
+ *
+ * @remarks
+ * What {@link RouteMatcherInterface.match} returns on a hit (`undefined` on a
+ * miss). `params` is a frozen `name → value` record (empty for a parameterless
+ * path), each value URL-decoded with a malformed-`%` tolerated as literal. Plain
+ * data — no behavior.
+ */
+export interface RouteMatch<Meta> {
+	readonly meta: Meta
+	readonly params: Readonly<Record<string, string>>
+}
+
+/**
+ * One registered route — the `path` pattern plus the `meta` payload to return
+ * when it matches. The creation input a {@link RouteMatcherInterface} registers
+ * (compiling the path once at registration).
+ *
+ * @typeParam Meta - The payload to carry on a match (opaque to the engine)
+ *
+ * @remarks
+ * - `path` — the route path pattern (`/users/:id`); compiled once on registration.
+ * - `meta` — the opaque payload returned (as {@link RouteMatch.meta}) when this
+ *   entry is the most-specific match. The engine never inspects it — the
+ *   consumer's `answers` predicate (the override seam) decides eligibility from it.
+ */
+export interface RouteEntry<Meta> {
+	readonly path: string
+	readonly meta: Meta
+}
+
+/**
+ * The native-override seam — a predicate deciding whether an entry's `meta`
+ * ANSWERS a given `match` call, beyond the path matching.
+ *
+ * @typeParam Meta - The entry payload the predicate reads
+ *
+ * @remarks
+ * The §21 "native override" the two consumers differ on: the server passes a
+ * method-check (`(meta) => meta.method === requestMethod`), the browser omits the
+ * predicate entirely (every path match always answers). Passed per-call to
+ * {@link RouteMatcherInterface.match}; when omitted, every entry whose path
+ * matches is eligible. Total — it never throws (a consumer keeps it pure).
+ */
+export type RouteMatcherAnswers<Meta> = (meta: Meta) => boolean
+
+/**
+ * The path-matching engine contract (the §4.5 behavioral-interface role for the
+ * one-class-per-file `RouteMatcher`). Registers `{ path, meta }` entries
+ * (compiling each path once) and resolves a concrete pathname to the MOST
+ * SPECIFIC matching entry — a literal segment beats a param at the earliest
+ * differing segment, registration-order-independent. The shared engine both a
+ * method-dimensioned server router and a method-less browser router compose.
+ *
+ * @typeParam Meta - The opaque payload each entry carries and a match returns
+ *
+ * @remarks
+ * - `count` — the number of registered entries.
+ * - `add(entry)` / `add(entries)` — register ONE / MANY `{ path, meta }` (§9.2
+ *   batch); the path is compiled once here. Distinct patterns coexist; the
+ *   consumer owns any same-path dedup (the engine keeps each entry it is given).
+ * - `match(pathname, answers?)` — the MOST-SPECIFIC matching entry as a
+ *   {@link RouteMatch} (its `meta` + decoded `params`), or `undefined`. The
+ *   optional `answers` predicate (the override seam) filters candidates by `meta`
+ *   first; omitted ⇒ every path match is eligible.
+ * - `entries(pathname?)` — ALL registered entries in registration order, or only
+ *   those whose path matches `pathname` (the §9 plural accessor; the filtered form
+ *   backs a consumer's allow/405 set).
+ * - `clear()` — drop every entry (§10), leaving the matcher reusable.
+ */
+export interface RouteMatcherInterface<Meta> {
+	readonly count: number
+	add(entry: RouteEntry<Meta>): void
+	add(entries: readonly RouteEntry<Meta>[]): void
+	match(pathname: string, answers?: RouteMatcherAnswers<Meta>): RouteMatch<Meta> | undefined
+	entries(): readonly RouteEntry<Meta>[]
+	entries(pathname: string): readonly RouteEntry<Meta>[]
+	clear(): void
+}
+
+/**
+ * Options for {@link import('./factories.js').createRouteMatcher} — an optional
+ * initial set of entries to register.
+ *
+ * @typeParam Meta - The entry payload type
+ *
+ * @remarks
+ * - `entries` — the initial `{ path, meta }` entries to register (each path
+ *   compiled once), equivalent to a bare `createRouteMatcher()` followed by
+ *   `add(entries)`. Omitted ⇒ an empty matcher.
+ */
+export interface RouteMatcherOptions<Meta> {
+	readonly entries?: readonly RouteEntry<Meta>[]
+}

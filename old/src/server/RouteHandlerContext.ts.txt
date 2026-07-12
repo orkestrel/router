@@ -1,0 +1,146 @@
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { HTTPMethod, RouteHandlerContextInterface } from '../types.js'
+import { DEFAULT_BODY_LIMIT, DEFAULT_DECOMPRESSED_LIMIT } from '../constants.js'
+import { ContentTooLargeError } from '../errors.js'
+import {
+	collectBody,
+	contentType,
+	decodeBody,
+	decompressBody,
+	parseURL,
+	requestEncoding,
+	requestMethod,
+	sendEmpty,
+	sendError,
+	sendJSON,
+	sendText,
+} from '../helpers.js'
+
+// The per-request handle, constructed fresh by the Server for each exchange and
+// passed (by interface) to every middleware and the matched route handler. It owns
+// the parsed method / URL / query (computed once at construction), the mutable
+// `state` bag, and the params the matcher fills in. `body()` collects + decodes the
+// request body LAZILY and caches it, so a body-parser middleware and the handler
+// share ONE collection path (no double-read of the consumable request stream). The
+// response helpers wrap the pure `helpers.ts` senders and are no-ops once the
+// response head is sent. Node types are narrowed via the helpers, never asserted
+// (AGENTS §14).
+
+/**
+ * The single unified surface every route handler + middleware receives.
+ *
+ * @remarks
+ * One instance per request/response exchange. The method, URL, and query are parsed
+ * once at construction (via the `helpers.ts` readers); `params` is set by the route
+ * manager after a match (the spine assigns it before dispatch). `body()` is lazy +
+ * cached — the first call collects the request body (bounded by `limit`) and decodes
+ * it (JSON for a JSON content type, raw text otherwise), and every later call
+ * resolves the same cached value, so a body-parser middleware running before the
+ * handler does not consume the stream out from under it. The response helpers
+ * (`json` / `text` / `empty` / `error`) write status + headers + body in one call
+ * and are no-ops once the response has been sent.
+ */
+export class RouteHandlerContext implements RouteHandlerContextInterface {
+	readonly request: IncomingMessage
+	readonly response: ServerResponse
+	readonly method: HTTPMethod
+	readonly url: URL
+	readonly query: URLSearchParams
+	readonly state = new Map<string, unknown>()
+	#params: Readonly<Record<string, string>> = {}
+	#limit: number
+	#decompression: number = DEFAULT_DECOMPRESSED_LIMIT
+	#body: Promise<unknown> | undefined
+
+	constructor(request: IncomingMessage, response: ServerResponse, limit = DEFAULT_BODY_LIMIT) {
+		this.request = request
+		this.response = response
+		this.method = requestMethod(request)
+		this.url = parseURL(request)
+		this.query = this.url.searchParams
+		this.#limit = limit
+	}
+
+	get params(): Readonly<Record<string, string>> {
+		return this.#params
+	}
+
+	// Assign the matched route's extracted params. Called by the Server once the
+	// route manager resolves a match, before the handler runs. Not part of the
+	// public handler surface (a handler reads `params`, never sets it).
+	assign(params: Readonly<Record<string, string>>): void {
+		this.#params = params
+	}
+
+	// Set the body-size limit (and, optionally, the decompressed-size / zip-bomb cap)
+	// before the body is first collected — the hook the body-parser middleware uses to
+	// apply its configured limits to the single collection path. A no-op once `body()`
+	// has already started collecting (the limits are captured at first read). Not part
+	// of the public handler surface.
+	prepare(limit: number, decompression?: number): void {
+		if (this.#body !== undefined) return
+		this.#limit = limit
+		if (decompression !== undefined) this.#decompression = decompression
+	}
+
+	// Seed the body with an already-parsed value, so `body()` resolves to it WITHOUT touching the
+	// consumable request stream — the hook a streaming body parser (the multipart middleware) uses
+	// when it has read the raw `request` ITSELF (multipart does NOT go through the buffering `body()`
+	// path; it streams the request). Caches the resolved value as the body promise. Not part of the
+	// public handler surface.
+	seed(value: unknown): void {
+		this.#body = Promise.resolve(value)
+	}
+
+	body(): Promise<unknown> {
+		// Collect → (transparently DECOMPRESS) → decode ONCE; cache the promise so concurrent /
+		// repeated callers (a body-parser middleware then the handler) share the single read of the
+		// consumable request stream. A `Content-Encoding: gzip/deflate/br` body is decompressed
+		// BEFORE the content-type decode, so the handler's `body()` sees the decoded value either
+		// way — the compression is invisible above this line.
+		this.#body ??= collectBody(this.request, this.#limit).then((buffer) =>
+			decodeBody(this.#decompress(buffer), contentType(this.request)),
+		)
+		return this.#body
+	}
+
+	// Transparently decompress a collected request body that declares a `Content-Encoding`, with a
+	// ZIP-BOMB guard on the DECOMPRESSED size. `collectBody` already bounds the COMPRESSED bytes to
+	// `#limit`, but a small compressed payload can inflate by ORDERS OF MAGNITUDE — so the codec is
+	// given `#decompression` as its `maxOutputLength` (via `decompressBody`'s `max`): `node:zlib`
+	// ABORTS the inflation BEFORE materializing the full bomb the instant the output would exceed the
+	// cap, so a bomb can never exhaust memory (the post-hoc `decompressed.length > limit` check it
+	// replaces only fired AFTER the giant buffer was already allocated — too late). That abort is a
+	// `RangeError` (`ERR_BUFFER_TOO_LARGE`), which is mapped to a `ContentTooLargeError` (413). An
+	// absent / `identity` / unknown / multi-coding `Content-Encoding` is a no-op (`requestEncoding` →
+	// `undefined`); a CORRUPT-body codec throw (a different error) propagates to the body parser (→ 400).
+	#decompress(buffer: Buffer): Buffer {
+		const encoding = requestEncoding(this.request.headers['content-encoding'])
+		if (encoding === undefined) return buffer
+		try {
+			return decompressBody(buffer, encoding, this.#decompression)
+		} catch (error: unknown) {
+			// The over-cap abort is a RangeError (ERR_BUFFER_TOO_LARGE) — a zip bomb, surfaced as a 413.
+			// Any OTHER codec throw is a corrupt / truncated body — rethrow it so the body parser maps it
+			// to a 400 (a client error), preserving the existing corrupt-body behavior.
+			if (error instanceof RangeError) throw new ContentTooLargeError(this.#decompression)
+			throw error
+		}
+	}
+
+	json(value: unknown, status?: number): void {
+		sendJSON(this.response, value, status)
+	}
+
+	text(value: string, status?: number): void {
+		sendText(this.response, value, status)
+	}
+
+	empty(status?: number): void {
+		sendEmpty(this.response, status)
+	}
+
+	error(status: number, message?: string): void {
+		sendError(this.response, status, message)
+	}
+}

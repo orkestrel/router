@@ -1,0 +1,205 @@
+import { describe, expect, it } from 'vitest'
+import type { RouteMatcherInterface } from '@src/core'
+import { createRouteMatcher, RouteMatcher } from '@src/core'
+
+// The shared path-matching ENGINE (§16 mirrors RouteMatcher.ts). Pins the registry +
+// most-specific-match scan and the §21 `answers` override seam: the SAME engine serves
+// a method-dimensioned consumer (an `answers` method-check) and a method-less one
+// (`answers` omitted ⇒ every path match wins). Built directly here (the factory's own
+// round-trip lives in factories.test.ts).
+
+// A method-dimensioned meta (the server consumer's shape) — `answers` reads `method`.
+interface MethodMeta {
+	readonly method: 'GET' | 'POST'
+	readonly tag: string
+}
+
+// A method-less meta (the browser SPA consumer's shape) — `answers` is omitted.
+interface PageMeta {
+	readonly page: string
+}
+
+describe('RouteMatcher — registration', () => {
+	it('starts empty and counts registered entries', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		expect(matcher.count).toBe(0)
+		matcher.add({ path: '/a', meta: { page: 'a' } })
+		expect(matcher.count).toBe(1)
+	})
+
+	it('registers a batch (the §9.2 array overload)', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add([
+			{ path: '/a', meta: { page: 'a' } },
+			{ path: '/b', meta: { page: 'b' } },
+		])
+		expect(matcher.count).toBe(2)
+	})
+
+	it('keeps EVERY entry it is given (dedup is the consumer policy, not the engine)', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/a', meta: { page: 'first' } })
+		matcher.add({ path: '/a', meta: { page: 'second' } })
+		expect(matcher.count).toBe(2) // both retained — the engine never dedups
+	})
+
+	it('seeds from constructor options', () => {
+		const matcher = new RouteMatcher<PageMeta>({
+			entries: [{ path: '/seed', meta: { page: 'seed' } }],
+		})
+		expect(matcher.count).toBe(1)
+		expect(matcher.match('/seed')?.meta.page).toBe('seed')
+	})
+
+	it('clear() drops every entry, leaving the matcher reusable', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/a', meta: { page: 'a' } })
+		matcher.clear()
+		expect(matcher.count).toBe(0)
+		expect(matcher.match('/a')).toBeUndefined()
+		matcher.add({ path: '/b', meta: { page: 'b' } })
+		expect(matcher.match('/b')?.meta.page).toBe('b')
+	})
+})
+
+describe('RouteMatcher — match (method-less / browser consumer, no `answers`)', () => {
+	it('returns the matched entry meta + decoded params on a hit', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/users/:id', meta: { page: 'profile' } })
+		expect(matcher.match('/users/7')).toEqual({ meta: { page: 'profile' }, params: { id: '7' } })
+	})
+
+	it('returns undefined on a miss', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/users/:id', meta: { page: 'profile' } })
+		expect(matcher.match('/posts/7')).toBeUndefined()
+	})
+
+	it('returns an empty params record for a parameterless match', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/about', meta: { page: 'about' } })
+		expect(matcher.match('/about')).toEqual({ meta: { page: 'about' }, params: {} })
+	})
+
+	it('matches with trailing-slash insensitivity, root `/` exempt', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/users', meta: { page: 'list' } })
+		matcher.add({ path: '/', meta: { page: 'home' } })
+		expect(matcher.match('/users')?.meta.page).toBe('list')
+		expect(matcher.match('/users/')?.meta.page).toBe('list') // trailing slash optional
+		expect(matcher.match('/')?.meta.page).toBe('home')
+		expect(matcher.match('')).toBeUndefined() // root is `^/$` — `''` does not match
+	})
+})
+
+describe('RouteMatcher — literal-over-param precedence is ORDER-INDEPENDENT', () => {
+	it('picks the literal `/users/me` when `:id` was registered FIRST', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/users/:id', meta: { page: 'profile' } })
+		matcher.add({ path: '/users/me', meta: { page: 'self' } })
+		expect(matcher.match('/users/me')?.meta.page).toBe('self')
+		expect(matcher.match('/users/7')?.meta.page).toBe('profile')
+	})
+
+	it('picks the literal `/users/me` when `:id` was registered LAST', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/users/me', meta: { page: 'self' } })
+		matcher.add({ path: '/users/:id', meta: { page: 'profile' } })
+		expect(matcher.match('/users/me')?.meta.page).toBe('self')
+		expect(matcher.match('/users/7')?.meta.page).toBe('profile')
+	})
+
+	it('resolves precedence at the EARLIEST differing segment', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/:section/list', meta: { page: 'dynamic' } })
+		matcher.add({ path: '/users/:rest', meta: { page: 'literal-first' } })
+		// `/users/list` matches both: literal at index 0 (`users`) beats the param there.
+		expect(matcher.match('/users/list')?.meta.page).toBe('literal-first')
+	})
+})
+
+describe('RouteMatcher — the `answers` override seam (method-dimensioned / server consumer)', () => {
+	// The server passes a method-check as the per-call predicate — exactly how the http
+	// RouteManager will consume this engine.
+	const byMethod =
+		(method: MethodMeta['method']) =>
+		(meta: MethodMeta): boolean =>
+			meta.method === method
+
+	it('filters candidates by the predicate before matching the path', () => {
+		const matcher = new RouteMatcher<MethodMeta>()
+		matcher.add({ path: '/users', meta: { method: 'GET', tag: 'read' } })
+		matcher.add({ path: '/users', meta: { method: 'POST', tag: 'create' } })
+		expect(matcher.match('/users', byMethod('GET'))?.meta.tag).toBe('read')
+		expect(matcher.match('/users', byMethod('POST'))?.meta.tag).toBe('create')
+	})
+
+	it('returns undefined when the path matches but no entry answers', () => {
+		const matcher = new RouteMatcher<MethodMeta>()
+		matcher.add({ path: '/users', meta: { method: 'GET', tag: 'read' } })
+		// The path `/users` matches, but no POST entry answers → undefined (a 405 the
+		// consumer derives from the still-matching entries below).
+		expect(matcher.match('/users', byMethod('POST'))).toBeUndefined()
+	})
+
+	it('still applies specificity AMONG the answering candidates', () => {
+		const matcher = new RouteMatcher<MethodMeta>()
+		matcher.add({ path: '/users/:id', meta: { method: 'GET', tag: 'profile' } })
+		matcher.add({ path: '/users/me', meta: { method: 'GET', tag: 'self' } })
+		matcher.add({ path: '/users/me', meta: { method: 'POST', tag: 'update-self' } })
+		// GET /users/me: both GET entries answer; the literal `/users/me` wins.
+		expect(matcher.match('/users/me', byMethod('GET'))?.meta.tag).toBe('self')
+		// POST /users/me: only the POST literal answers.
+		expect(matcher.match('/users/me', byMethod('POST'))?.meta.tag).toBe('update-self')
+	})
+
+	it('without `answers`, every entry answers (the browser always-answers case)', () => {
+		const matcher = new RouteMatcher<MethodMeta>()
+		matcher.add({ path: '/users', meta: { method: 'GET', tag: 'read' } })
+		matcher.add({ path: '/users', meta: { method: 'POST', tag: 'create' } })
+		// No predicate ⇒ the first-registered matching entry wins (equal specificity, stable).
+		expect(matcher.match('/users')?.meta.tag).toBe('read')
+	})
+})
+
+describe('RouteMatcher — entries() accessor', () => {
+	it('lists all registered entries in registration order', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/a', meta: { page: 'a' } })
+		matcher.add({ path: '/b', meta: { page: 'b' } })
+		expect(matcher.entries().map((entry) => entry.path)).toEqual(['/a', '/b'])
+	})
+
+	it('returns a COPY — mutating the result never touches the registry', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/a', meta: { page: 'a' } })
+		const list = matcher.entries()
+		expect(Array.isArray(list)).toBe(true)
+		// A returned snapshot, not the backing array.
+		expect(list).not.toBe(matcher.entries())
+	})
+
+	it('entries(pathname) returns only path-matching entries (regardless of meta)', () => {
+		const matcher = new RouteMatcher<MethodMeta>()
+		matcher.add({ path: '/users', meta: { method: 'GET', tag: 'read' } })
+		matcher.add({ path: '/users', meta: { method: 'POST', tag: 'create' } })
+		matcher.add({ path: '/posts', meta: { method: 'GET', tag: 'posts' } })
+		// Both `/users` entries match the pathname — the consumer's 405 `Allow` set.
+		const matched = matcher.entries('/users')
+		expect(matched.map((entry) => entry.meta.method).sort()).toEqual(['GET', 'POST'])
+	})
+
+	it('entries(pathname) is empty when the path matches nothing', () => {
+		const matcher = new RouteMatcher<PageMeta>()
+		matcher.add({ path: '/users', meta: { page: 'list' } })
+		expect(matcher.entries('/nope')).toEqual([])
+	})
+})
+
+describe('createRouteMatcher — returns a working interface', () => {
+	it('round-trips registration and matching through the factory', () => {
+		const matcher: RouteMatcherInterface<PageMeta> = createRouteMatcher<PageMeta>()
+		matcher.add({ path: '/users/:id', meta: { page: 'profile' } })
+		expect(matcher.match('/users/9')).toEqual({ meta: { page: 'profile' }, params: { id: '9' } })
+	})
+})

@@ -1,0 +1,36 @@
+import type { HTTPMethod, RouteHandler, RouteInput, RouteInterface } from '../types.js'
+import type { CompiledPath } from '@src/core'
+import { compilePath, matchPath } from '@src/core'
+
+/**
+ * A registered route — an immutable, compiled {@link RouteInput}.
+ *
+ * @remarks
+ * Compiles its `path` once at construction via the `@src/core` router engine's
+ * {@link compilePath} into an anchored regex + ordered param names, so `match` is a
+ * single {@link matchPath} (one `exec`) per request. `match` returns the URL-decoded
+ * params on a hit (an empty record for a parameterless path) or `undefined` on a
+ * miss — the decode (and the tolerated malformed-escape) is the engine's. The
+ * {@link RouteManager} owns the method + auto-HEAD logic; a `Route` only knows its
+ * own pattern. The matcher itself is the shared, environment-agnostic engine — the
+ * server holds NO copy of the path-matching primitives (AGENTS §5/§6).
+ */
+export class Route implements RouteInterface {
+	readonly method: HTTPMethod
+	readonly path: string
+	readonly name: string | undefined
+	readonly handler: RouteHandler
+	readonly #compiled: CompiledPath
+
+	constructor(input: RouteInput) {
+		this.method = input.method
+		this.path = input.path
+		this.name = input.name
+		this.handler = input.handler
+		this.#compiled = compilePath(input.path)
+	}
+
+	match(pathname: string): Readonly<Record<string, string>> | undefined {
+		return matchPath(this.#compiled, pathname)
+	}
+}

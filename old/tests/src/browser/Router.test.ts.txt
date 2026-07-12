@@ -1,0 +1,685 @@
+import type { Route, RouterInterface, RouterMatch } from '@src/browser'
+import { createRouter, Router } from '@src/browser'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createRecorder, waitForDelay } from '../../../setup.js'
+import { createRoutePage, drainRouters, settleHash } from '../../../setupBrowser.js'
+
+// The hash-driven SPA `Router`, pinned in a real Chromium (the `src:browser`
+// project) against real `location.hash` + `hashchange` — no mocks (§16.2). It
+// CONSUMES the pure `@src/core` matching engine, so the headline behaviors under
+// test — `:param` extraction into `render`, literal-over-param precedence (proven
+// order-INDEPENDENT), and trailing-slash insensitivity — come from the shared
+// engine, not a re-rolled matcher. Mirrors `src/browser/router/Router.ts`. The
+// `drainRouters` teardown, `settleHash` pause, and `createRoutePage` render fn live
+// in `setupBrowser.ts` (§16.1).
+
+// Every router started in a test is stopped + destroyed after it, and the hash is
+// reset, so no `hashchange` listener leaks across cases (the §16.1 teardown shape).
+const routers: RouterInterface[] = []
+
+// Setting `location.hash` schedules an ASYNCHRONOUS `hashchange`, so a hash written
+// late in one test can fire into the next. Before each test, destroy any lingering
+// router (removing its listener) and drain a pending event into the void with no
+// listener attached, so each case starts from a quiescent `#''` — deterministic
+// event counting (§16.2). The matching teardown destroys this test's routers.
+beforeEach(async () => {
+	drainRouters(routers)
+	window.location.hash = ''
+	await waitForDelay()
+})
+
+afterEach(() => {
+	drainRouters(routers)
+})
+
+// A started router plus the outlet it renders into — so a case asserts both the
+// `active` match AND the real rendered DOM, without peeking at private state.
+interface StartedRouter {
+	readonly router: RouterInterface
+	readonly outlet: HTMLElement
+}
+
+// Start a router over `routes` (tracked for teardown) and return it with its outlet
+// — the one scenario builder every case leans on, so no per-test start/track
+// boilerplate.
+function start(routes: readonly Route[], options?: { fallback?: string }): StartedRouter {
+	const outlet = document.createElement('main')
+	const router = createRouter({
+		routes,
+		outlet,
+		fallback: options?.fallback,
+	})
+	routers.push(router)
+	router.start()
+	return { router, outlet }
+}
+
+describe('Router — hash navigation + rendering', () => {
+	it('resolves the current hash and renders into the outlet on start', () => {
+		window.location.hash = '#/tokens'
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		expect(router.active?.path).toBe('tokens')
+		expect(outlet.querySelector('[data-page="tokens"]')).not.toBeNull()
+	})
+
+	it('re-renders on a real hashchange', async () => {
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		window.location.hash = '#/palette'
+		await waitForDelay()
+		expect(router.active?.path).toBe('palette')
+		expect(outlet.querySelector('[data-page="palette"]')).not.toBeNull()
+		// The previous page is gone — `replaceChildren`, not append.
+		expect(outlet.querySelector('[data-page="tokens"]')).toBeNull()
+	})
+})
+
+describe('Router — :param extraction reaches render', () => {
+	it('passes the engine-decoded params to the matched route render', () => {
+		window.location.hash = '#/users/7'
+		const { router, outlet } = start([
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+		])
+		expect(router.active?.path).toBe('users/:id')
+		expect(router.active?.params).toEqual({ id: '7' })
+		// Proof the params reached `render`, not just `active`.
+		const node = outlet.querySelector('[data-page="user"]')
+		expect(node?.getAttribute('data-params')).toBe(JSON.stringify({ id: '7' }))
+	})
+
+	it('URL-decodes a percent-escaped param value (engine behavior)', () => {
+		window.location.hash = '#/users/a%20b'
+		const { router } = start([
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+		])
+		expect(router.active?.params).toEqual({ id: 'a b' })
+	})
+
+	it('captures multiple params positionally', () => {
+		window.location.hash = '#/posts/42/comments/hello'
+		const { router } = start([
+			{
+				path: 'posts/:post/comments/:comment',
+				label: 'Comment',
+				render: createRoutePage('comment'),
+			},
+		])
+		expect(router.active?.params).toEqual({ post: '42', comment: 'hello' })
+	})
+})
+
+describe('Router — literal-over-param precedence (order-independent)', () => {
+	it('prefers the literal when the param route is registered FIRST', () => {
+		window.location.hash = '#/users/me'
+		const { router, outlet } = start([
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+			{ path: 'users/me', label: 'Me', render: createRoutePage('me') },
+		])
+		expect(router.active?.path).toBe('users/me')
+		expect(outlet.querySelector('[data-page="me"]')).not.toBeNull()
+	})
+
+	it('prefers the literal when the param route is registered LAST', () => {
+		window.location.hash = '#/users/me'
+		const { router, outlet } = start([
+			{ path: 'users/me', label: 'Me', render: createRoutePage('me') },
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+		])
+		expect(router.active?.path).toBe('users/me')
+		expect(outlet.querySelector('[data-page="me"]')).not.toBeNull()
+	})
+
+	it('still resolves a non-literal value to the param route', () => {
+		window.location.hash = '#/users/99'
+		const { router } = start([
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+			{ path: 'users/me', label: 'Me', render: createRoutePage('me') },
+		])
+		expect(router.active?.path).toBe('users/:id')
+		expect(router.active?.params).toEqual({ id: '99' })
+	})
+})
+
+describe('Router — trailing-slash insensitivity (engine behavior)', () => {
+	it('matches a literal path with a trailing slash', () => {
+		window.location.hash = '#/tokens/'
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+		])
+		expect(router.active?.path).toBe('tokens')
+		expect(outlet.querySelector('[data-page="tokens"]')).not.toBeNull()
+	})
+
+	it('matches a :param path with a trailing slash', () => {
+		window.location.hash = '#/users/7/'
+		const { router } = start([
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+		])
+		expect(router.active?.params).toEqual({ id: '7' })
+	})
+})
+
+describe('Router — fallback for an unmatched hash', () => {
+	it('falls back to the first route by default for an unknown hash', () => {
+		window.location.hash = '#/does-not-exist'
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		expect(router.active?.path).toBe('tokens')
+		expect(outlet.querySelector('[data-page="tokens"]')).not.toBeNull()
+	})
+
+	it('falls back to the first route for an empty hash', () => {
+		window.location.hash = ''
+		const { router } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		expect(router.active?.path).toBe('tokens')
+	})
+
+	it('honors an explicit fallback path', () => {
+		window.location.hash = '#/nope'
+		const { router, outlet } = start(
+			[
+				{
+					path: 'tokens',
+					label: 'Tokens',
+					render: createRoutePage('tokens'),
+				},
+				{
+					path: 'palette',
+					label: 'Palette',
+					render: createRoutePage('palette'),
+				},
+			],
+			{ fallback: 'palette' },
+		)
+		expect(router.active?.path).toBe('palette')
+		expect(outlet.querySelector('[data-page="palette"]')).not.toBeNull()
+	})
+
+	it('renders an empty outlet when the fallback names no route', () => {
+		window.location.hash = '#/nope'
+		const outlet = document.createElement('main')
+		const router = createRouter({
+			routes: [
+				{
+					path: 'tokens',
+					label: 'Tokens',
+					render: createRoutePage('tokens'),
+				},
+			],
+			outlet,
+			fallback: 'ghost',
+		})
+		routers.push(router)
+		router.start()
+		expect(router.active).toEqual({ path: 'ghost', params: {} })
+		expect(outlet.childElementCount).toBe(0)
+	})
+
+	it('ignores a ?query suffix when matching (the Harness directive passes through)', () => {
+		window.location.hash = '#/tokens?scenario=load'
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+		])
+		expect(router.active?.path).toBe('tokens')
+		expect(outlet.querySelector('[data-page="tokens"]')).not.toBeNull()
+	})
+})
+
+describe('Router — go(path)', () => {
+	it('navigates by setting the hash and re-renders', async () => {
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		router.go('palette')
+		// `go` sets the hash → `hashchange` fires async; await a macrotask.
+		await waitForDelay()
+		expect(window.location.hash).toBe('#/palette')
+		expect(router.active?.path).toBe('palette')
+		expect(outlet.querySelector('[data-page="palette"]')).not.toBeNull()
+	})
+
+	it('resolves a :param destination, extracting the param', async () => {
+		const { router } = start([
+			{
+				path: 'users/:id',
+				label: 'User',
+				render: createRoutePage('user'),
+			},
+		])
+		router.go('users/42')
+		await waitForDelay()
+		expect(router.active?.params).toEqual({ id: '42' })
+	})
+
+	it('re-renders even when the destination is already the active hash (no event fires)', () => {
+		window.location.hash = '#/tokens'
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+		])
+		const first = outlet.querySelector('[data-page="tokens"]')
+		router.go('tokens') // same hash → no hashchange → resolve directly
+		const second = outlet.querySelector('[data-page="tokens"]')
+		// A fresh node was rendered (replaceChildren ran again), so it is a NEW element.
+		expect(second).not.toBeNull()
+		expect(second).not.toBe(first)
+	})
+})
+
+describe('Router — the navigate event (§13)', () => {
+	it('emits navigate with the resolved match on every navigation', async () => {
+		await settleHash('#/tokens')
+		const outlet = document.createElement('main')
+		const router = createRouter({
+			routes: [
+				{
+					path: 'tokens',
+					label: 'Tokens',
+					render: createRoutePage('tokens'),
+				},
+				{
+					path: 'users/:id',
+					label: 'User',
+					render: createRoutePage('user'),
+				},
+			],
+			outlet,
+		})
+		routers.push(router)
+		const recorder = createRecorder<readonly [RouterMatch]>()
+		router.emitter.on('navigate', recorder.handler)
+		router.start() // resolves #/tokens → first navigate
+		router.go('users/7')
+		await waitForDelay()
+		expect(recorder.count).toBe(2)
+		expect(recorder.calls[0]?.[0]).toEqual({ path: 'tokens', params: {} })
+		expect(recorder.calls[1]?.[0]).toEqual({
+			path: 'users/:id',
+			params: { id: '7' },
+		})
+	})
+
+	it('wires an initial navigate listener from options.on', async () => {
+		await settleHash('#/tokens')
+		const recorder = createRecorder<readonly [RouterMatch]>()
+		const outlet = document.createElement('main')
+		const router = createRouter({
+			routes: [
+				{
+					path: 'tokens',
+					label: 'Tokens',
+					render: createRoutePage('tokens'),
+				},
+			],
+			outlet,
+			on: { navigate: recorder.handler },
+		})
+		routers.push(router)
+		router.start()
+		expect(recorder.count).toBe(1)
+		expect(recorder.calls[0]?.[0]).toEqual({ path: 'tokens', params: {} })
+	})
+
+	it('delivers the initial match to an emitter.on(navigate) listener registered before start', async () => {
+		await settleHash('#/tokens')
+		const outlet = document.createElement('main')
+		const router = createRouter({
+			routes: [
+				{ path: 'tokens', label: 'Tokens', render: createRoutePage('tokens') },
+				{ path: 'palette', label: 'Palette', render: createRoutePage('palette') },
+			],
+			outlet,
+		})
+		routers.push(router)
+		const seen: string[] = []
+		// Register BEFORE start() (the canonical §13 usage the app relies on) so the
+		// initial resolve's `navigate` is delivered, then every later navigation too.
+		router.emitter.on('navigate', (match) => seen.push(match.path))
+		router.start()
+		expect(seen).toEqual(['tokens'])
+		router.go('palette')
+		await waitForDelay()
+		expect(seen).toEqual(['tokens', 'palette'])
+	})
+})
+
+describe('Router — start / stop lifecycle', () => {
+	it('stops dispatching after stop()', async () => {
+		window.location.hash = '#/tokens'
+		const { router, outlet } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		router.stop()
+		window.location.hash = '#/palette'
+		await waitForDelay()
+		// The listener was removed, so the outlet still shows the start route.
+		expect(router.active?.path).toBe('tokens')
+		expect(outlet.querySelector('[data-page="tokens"]')).not.toBeNull()
+	})
+
+	it('start() is idempotent — a second call does not double-register the listener', async () => {
+		await settleHash('#/tokens')
+		const { router } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		router.start() // second call — must be a no-op
+		const recorder = createRecorder<readonly [RouterMatch]>()
+		router.emitter.on('navigate', recorder.handler)
+		window.location.hash = '#/palette'
+		await waitForDelay()
+		// Exactly ONE navigate from the single hashchange (not two from a doubled listener).
+		expect(recorder.count).toBe(1)
+	})
+})
+
+describe('Router — destroy tears down', () => {
+	it('removes the hashchange listener and destroys the emitter', async () => {
+		window.location.hash = '#/tokens'
+		const { router } = start([
+			{
+				path: 'tokens',
+				label: 'Tokens',
+				render: createRoutePage('tokens'),
+			},
+			{
+				path: 'palette',
+				label: 'Palette',
+				render: createRoutePage('palette'),
+			},
+		])
+		router.destroy()
+		expect(router.emitter.destroyed).toBe(true)
+		// After destroy a hashchange no longer re-resolves.
+		window.location.hash = '#/palette'
+		await waitForDelay()
+		expect(router.active?.path).toBe('tokens')
+	})
+})
+
+describe('Router — observe-only mode (no outlet, no render)', () => {
+	it('resolves and emits navigate without an outlet or a route render', async () => {
+		await settleHash('#/users/7')
+		const recorder = createRecorder<readonly [RouterMatch]>()
+		const router = createRouter({
+			// No `outlet`, and the routes carry NO `render` — an observe-only router that
+			// drives nothing in the DOM, only `active` + the `navigate` event.
+			routes: [{ path: 'users/:id', label: 'User' }],
+			on: { navigate: recorder.handler },
+		})
+		routers.push(router)
+		// Must not throw despite the absent outlet / render.
+		expect(() => router.start()).not.toThrow()
+		expect(router.active).toEqual({ path: 'users/:id', params: { id: '7' } })
+		expect(recorder.count).toBe(1)
+		expect(recorder.calls[0]?.[0]).toEqual({ path: 'users/:id', params: { id: '7' } })
+	})
+
+	it('emits navigate on a hashchange with no rendering', async () => {
+		const seen: string[] = []
+		const router = createRouter({
+			routes: [
+				{ path: 'tokens', label: 'Tokens' },
+				{ path: 'palette', label: 'Palette' },
+			],
+		})
+		routers.push(router)
+		// Register BEFORE start() so the initial resolve is delivered (the §13 usage).
+		router.emitter.on('navigate', (match) => seen.push(match.path))
+		router.start()
+		window.location.hash = '#/palette'
+		await waitForDelay()
+		// `tokens` is the default fallback resolved on start, then `palette` from the hashchange.
+		expect(seen).toEqual(['tokens', 'palette'])
+	})
+
+	it('skips rendering a route that has no render even when an outlet is given', () => {
+		window.location.hash = '#/tokens'
+		const outlet = document.createElement('main')
+		const router = createRouter({
+			// An outlet IS present, but the matched route has no `render` — nothing is drawn.
+			routes: [{ path: 'tokens', label: 'Tokens' }],
+			outlet,
+		})
+		routers.push(router)
+		router.start()
+		expect(router.active?.path).toBe('tokens')
+		expect(outlet.childElementCount).toBe(0)
+	})
+})
+
+describe('Router — match(path) (pure engine lookup)', () => {
+	it('returns the RouterMatch for a matching path without touching the hash', () => {
+		window.location.hash = '#/tokens'
+		const router = createRouter({
+			routes: [
+				{ path: 'users/:id', label: 'User', render: createRoutePage('user') },
+				{ path: 'users/me', label: 'Me', render: createRoutePage('me') },
+			],
+		})
+		routers.push(router)
+		// A pure lookup — no `start`, so `active` stays undefined and the hash is untouched.
+		expect(router.match('users/7')).toEqual({ path: 'users/:id', params: { id: '7' } })
+		// Literal-over-param precedence is the engine's, surfaced through `match`.
+		expect(router.match('users/me')).toEqual({ path: 'users/me', params: {} })
+		expect(router.active).toBeUndefined()
+		expect(window.location.hash).toBe('#/tokens')
+	})
+
+	it('returns undefined for a non-matching path (no fallback applied)', () => {
+		const router = createRouter({
+			routes: [{ path: 'tokens', label: 'Tokens', render: createRoutePage('tokens') }],
+		})
+		routers.push(router)
+		// `match` is fallback-free — a miss is `undefined`, not the fallback route.
+		expect(router.match('nope')).toBeUndefined()
+	})
+})
+
+describe('Router — opaque meta payload', () => {
+	interface Page {
+		readonly page: string
+	}
+
+	// These routers carry a typed `Meta` (`RouterInterface<Page>`), so they are tracked
+	// in their own array (the shared `routers` / `drainRouters` are `RouterInterface<void>`)
+	// and torn down here — destroy is `Meta`-agnostic, so no listener leaks across cases.
+	const tracked: RouterInterface<Page>[] = []
+	afterEach(() => {
+		while (tracked.length > 0) tracked.pop()?.destroy()
+	})
+
+	it('carries a route meta on match() and on active', () => {
+		window.location.hash = '#/tokens'
+		const router = createRouter<Page>({
+			routes: [
+				{ path: 'users/:id', label: 'User', meta: { page: 'UserPage' } },
+				{ path: 'tokens', label: 'Tokens', meta: { page: 'TokensPage' } },
+			],
+		})
+		tracked.push(router)
+		// `match()` surfaces the matched route's own meta alongside the pattern + params.
+		expect(router.match('users/7')).toEqual({
+			path: 'users/:id',
+			params: { id: '7' },
+			meta: { page: 'UserPage' },
+		})
+		router.start()
+		// `active` carries the resolved route's meta too.
+		expect(router.active?.meta).toEqual({ page: 'TokensPage' })
+	})
+
+	it('includes meta in the navigate event payload', async () => {
+		await settleHash('#/tokens')
+		const router = createRouter<Page>({
+			routes: [
+				{ path: 'tokens', label: 'Tokens', meta: { page: 'TokensPage' } },
+				{ path: 'users/:id', label: 'User', meta: { page: 'UserPage' } },
+			],
+		})
+		tracked.push(router)
+		const recorder = createRecorder<readonly [RouterMatch<Page>]>()
+		router.emitter.on('navigate', recorder.handler)
+		router.start() // resolves #/tokens → first navigate
+		router.go('users/7')
+		await waitForDelay()
+		expect(recorder.count).toBe(2)
+		expect(recorder.calls[0]?.[0]).toEqual({
+			path: 'tokens',
+			params: {},
+			meta: { page: 'TokensPage' },
+		})
+		expect(recorder.calls[1]?.[0]).toEqual({
+			path: 'users/:id',
+			params: { id: '7' },
+			meta: { page: 'UserPage' },
+		})
+	})
+
+	it('carries the fallback route meta when the fallback names a registered route', () => {
+		window.location.hash = '#/nope'
+		const router = createRouter<Page>({
+			routes: [
+				{ path: 'tokens', label: 'Tokens', meta: { page: 'TokensPage' } },
+				{ path: 'palette', label: 'Palette', meta: { page: 'PalettePage' } },
+			],
+			fallback: 'palette',
+		})
+		tracked.push(router)
+		router.start()
+		expect(router.active?.path).toBe('palette')
+		expect(router.active?.meta).toEqual({ page: 'PalettePage' })
+	})
+
+	it('reports meta undefined when the fallback names no registered route', () => {
+		window.location.hash = '#/nope'
+		const router = createRouter<Page>({
+			routes: [{ path: 'tokens', label: 'Tokens', meta: { page: 'TokensPage' } }],
+			fallback: 'ghost',
+		})
+		tracked.push(router)
+		router.start()
+		expect(router.active).toEqual({ path: 'ghost', params: {}, meta: undefined })
+	})
+})
+
+describe('Router — direct construction', () => {
+	it('createRouter returns a Router instance', () => {
+		const outlet = document.createElement('main')
+		const router = createRouter({
+			routes: [
+				{
+					path: 'tokens',
+					label: 'Tokens',
+					render: createRoutePage('tokens'),
+				},
+			],
+			outlet,
+		})
+		routers.push(router)
+		expect(router).toBeInstanceOf(Router)
+	})
+})

@@ -1,0 +1,120 @@
+import { describe, expect, it } from 'vitest'
+import { Route } from '@src/server'
+
+// src/server/http/Route.ts — a compiled, immutable route. `match` runs the compiled
+// regex against a pathname and returns the URL-decoded params on a hit, `undefined`
+// on a miss. A `Route` knows only its own pattern; the method / auto-HEAD logic is
+// the RouteManager's.
+
+const noop = (): void => {}
+
+describe('Route — match', () => {
+	it('extracts a single path param', () => {
+		const route = new Route({ method: 'GET', path: '/users/:id', handler: noop })
+		expect(route.match('/users/42')).toEqual({ id: '42' })
+	})
+
+	it('extracts multiple path params in order', () => {
+		const route = new Route({ method: 'GET', path: '/users/:id/posts/:slug', handler: noop })
+		expect(route.match('/users/7/posts/hello')).toEqual({ id: '7', slug: 'hello' })
+	})
+
+	it('URL-decodes param values', () => {
+		const route = new Route({ method: 'GET', path: '/q/:term', handler: noop })
+		expect(route.match('/q/hello%20world')).toEqual({ term: 'hello world' })
+	})
+
+	it('tolerates a malformed percent-escape (param stays literal)', () => {
+		const route = new Route({ method: 'GET', path: '/q/:term', handler: noop })
+		// `%E0%A4%A` is an incomplete sequence — decodeURIComponent would throw; the
+		// route keeps it literal rather than failing the match.
+		expect(route.match('/q/%E0%A4%A')).toEqual({ term: '%E0%A4%A' })
+	})
+
+	it('returns an empty record for a parameterless path', () => {
+		const route = new Route({ method: 'GET', path: '/health', handler: noop })
+		expect(route.match('/health')).toEqual({})
+	})
+
+	it('returns undefined on a mismatch', () => {
+		const route = new Route({ method: 'GET', path: '/users/:id', handler: noop })
+		expect(route.match('/posts/42')).toBeUndefined()
+		expect(route.match('/users/42/extra')).toBeUndefined()
+	})
+
+	it('exposes its method / path / name', () => {
+		const route = new Route({ method: 'POST', path: '/x', name: 'create', handler: noop })
+		expect(route.method).toBe('POST')
+		expect(route.path).toBe('/x')
+		expect(route.name).toBe('create')
+	})
+})
+
+describe('Route — match edge cases', () => {
+	it('decodes a percent-encoded slash inside a param', () => {
+		const route = new Route({ method: 'GET', path: '/files/:name', handler: noop })
+		// `:name` compiles to `([^/]+)`. The raw pathname has NO literal `/` (it carries
+		// `%2F`), so the capture takes `a%2Fb`, then decodeURIComponent yields `a/b`.
+		expect(route.match('/files/a%2Fb')).toEqual({ name: 'a/b' })
+	})
+
+	it('treats a metacharacter in a literal segment literally (the `.` is escaped)', () => {
+		const route = new Route({ method: 'GET', path: '/files/:name.json', handler: noop })
+		// The literal `.json` is escaped to `\.json`, so the pattern is `^/files/([^/]+)\.json$`.
+		// The param captures only `x` (NOT `x.json`) and the literal `.` is matched, not a wildcard.
+		expect(route.match('/files/x.json')).toEqual({ name: 'x' })
+		// `.` is NOT a wildcard, so `xXjson` (no literal dot) does not match.
+		expect(route.match('/files/xXjson')).toBeUndefined()
+	})
+
+	it('is anchored, not a prefix match — but a trailing slash is optional', () => {
+		// `^/api/?$` does not match a DEEPER path (a distinct segment is not a trailing
+		// slash)… but DOES match the same path with one trailing slash.
+		const api = new Route({ method: 'GET', path: '/api', handler: noop })
+		expect(api.match('/api')).toEqual({})
+		expect(api.match('/api/')).toEqual({}) // trailing slash is insensitive
+		expect(api.match('/api/users')).toBeUndefined() // NOT a prefix — deeper segment
+		// …and `^/api/users/?$` does not match the shorter `/api` (prefix the other way).
+		const users = new Route({ method: 'GET', path: '/api/users', handler: noop })
+		expect(users.match('/api/users')).toEqual({})
+		expect(users.match('/api/users/')).toEqual({}) // trailing slash is insensitive
+		expect(users.match('/api')).toBeUndefined()
+	})
+
+	it('matches a single trailing slash insensitively, including after a param', () => {
+		// A route `/users` matches both `/users` and `/users/`; a parametered route
+		// `/users/:id` matches `/users/me` and `/users/me/` with the SAME captured param
+		// (the trailing slash is folded away before the capture).
+		const users = new Route({ method: 'GET', path: '/users', handler: noop })
+		expect(users.match('/users')).toEqual({})
+		expect(users.match('/users/')).toEqual({})
+		const user = new Route({ method: 'GET', path: '/users/:id', handler: noop })
+		expect(user.match('/users/me')).toEqual({ id: 'me' })
+		expect(user.match('/users/me/')).toEqual({ id: 'me' })
+		// A registered pattern with its OWN trailing slash is normalized to be identical.
+		const slashed = new Route({ method: 'GET', path: '/users/', handler: noop })
+		expect(slashed.match('/users')).toEqual({})
+		expect(slashed.match('/users/')).toEqual({})
+	})
+
+	it('a double trailing slash is NOT folded (only ONE optional slash)', () => {
+		// The optional `/?` folds exactly ONE trailing slash, so `/users//` (a second,
+		// empty segment) still misses — the change does not over-match.
+		const users = new Route({ method: 'GET', path: '/users', handler: noop })
+		expect(users.match('/users//')).toBeUndefined()
+	})
+
+	it('the root `/` is unaffected by the trailing-slash rule', () => {
+		// The root keeps anchoring exactly `^/$` (the slash IS the path), so it matches
+		// `/` and nothing deeper — it is not stripped to `^/?$` (which would match `''`).
+		const root = new Route({ method: 'GET', path: '/', handler: noop })
+		expect(root.match('/')).toEqual({})
+		expect(root.match('')).toBeUndefined()
+		expect(root.match('//')).toBeUndefined()
+	})
+
+	it('extracts multiple params from interleaved literal segments', () => {
+		const route = new Route({ method: 'GET', path: '/u/:uid/p/:pid', handler: noop })
+		expect(route.match('/u/7/p/9')).toEqual({ uid: '7', pid: '9' })
+	})
+})

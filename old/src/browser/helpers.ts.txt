@@ -1,0 +1,36 @@
+// router/ helpers — the pure `{verb}{Noun}` hash-parsing primitive (AGENTS §4.3
+// module scope, no entity context). Exported per §5 (`helpers.ts` is the reusable-
+// utility surface; the `Router` composes it, and its own unit test pins it). This is
+// the param-free successor to the dev router's `routeId`: the ENGINE now does the
+// matching, so the only browser-specific glue left is turning `location.hash` into
+// the bare pathname the engine matches.
+
+/**
+ * Extract the bare route pathname from a `location.hash` value — strip the leading
+ * `#/` prefix and any `?query` suffix, so `'#/users/7?scenario=x'` → `'users/7'`.
+ *
+ * @remarks
+ * The ONE browser-specific step the SPA router adds over the pure `@src/core` engine:
+ * the hash carries a `#/` prefix the engine's path patterns never include, and a SPA
+ * `Harness` may append a `?scenario=` / `?autoplay=` directive that must NOT be part
+ * of the matched path (it is read separately). A hash that is empty or does not start
+ * with `#/` yields `''` (the engine then matches nothing, and the router falls back).
+ * Total — never throws.
+ *
+ * @param hash - The raw `window.location.hash` value (e.g. `'#/users/7?scenario=x'`)
+ * @returns The bare pathname to match (`'users/7'`), or `''` for an empty / non-`#/` hash
+ *
+ * @example
+ * ```ts
+ * hashPath('#/tokens') // 'tokens'
+ * hashPath('#/users/7?scenario=load') // 'users/7' — the query is dropped
+ * hashPath('') // '' — the router falls back
+ * hashPath('#other') // '' — not a `#/` route hash
+ * ```
+ */
+export function hashPath(hash: string): string {
+	if (!hash.startsWith('#/')) return ''
+	const withoutPrefix = hash.slice(2)
+	const queryIndex = withoutPrefix.indexOf('?')
+	return queryIndex === -1 ? withoutPrefix : withoutPrefix.slice(0, queryIndex)
+}

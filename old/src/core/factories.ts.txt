@@ -1,0 +1,37 @@
+import type { RouteMatcherInterface, RouteMatcherOptions } from './types.js'
+import { RouteMatcher } from './RouteMatcher.js'
+
+/**
+ * Create a {@link RouteMatcherInterface} — the pure path-matching engine that
+ * registers `{ path, meta }` entries (compiling each path once) and resolves a
+ * concrete pathname to the most-specific matching entry (the `create{Entity}`
+ * factory, AGENTS §4.6).
+ *
+ * @remarks
+ * `options.entries` seeds the matcher (equivalent to a bare `createRouteMatcher()`
+ * then `add(entries)`). The engine is environment-agnostic — the SAME instance
+ * drives a method-dimensioned server router (which passes a method-check as the
+ * per-call `answers` predicate) and a method-less browser router (which omits it).
+ *
+ * @typeParam Meta - The opaque payload each entry carries and a match returns
+ * @param options - Optional initial `entries`; see {@link RouteMatcherOptions}
+ * @returns A working {@link RouteMatcherInterface}
+ *
+ * @example
+ * ```ts
+ * import { createRouteMatcher } from '@src/core'
+ *
+ * const matcher = createRouteMatcher<{ page: string }>()
+ * matcher.add({ path: '/users/:id', meta: { page: 'profile' } })
+ * matcher.add({ path: '/users/me', meta: { page: 'self' } })
+ *
+ * matcher.match('/users/me') // { meta: { page: 'self' }, params: {} } — literal wins
+ * matcher.match('/users/7') // { meta: { page: 'profile' }, params: { id: '7' } }
+ * matcher.match('/posts/7') // undefined
+ * ```
+ */
+export function createRouteMatcher<Meta>(
+	options?: RouteMatcherOptions<Meta>,
+): RouteMatcherInterface<Meta> {
+	return new RouteMatcher(options)
+}

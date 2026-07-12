@@ -1,0 +1,46 @@
+import { hashPath } from '@src/browser'
+import { describe, expect, it } from 'vitest'
+
+// `hashPath` — the pure `#/<path>` parser the SPA `Router` adds over the pure
+// `@src/core` engine (strip the `#/` prefix + any `?query` suffix). Total, never
+// throws (§16.2). Mirrors `src/browser/router/helpers.ts`.
+
+describe('hashPath', () => {
+	it('strips the leading #/ prefix', () => {
+		expect(hashPath('#/tokens')).toBe('tokens')
+	})
+
+	it('keeps nested path segments', () => {
+		expect(hashPath('#/users/7')).toBe('users/7')
+	})
+
+	it('drops a ?query suffix (the Harness directive)', () => {
+		expect(hashPath('#/users/7?scenario=load')).toBe('users/7')
+		expect(hashPath('#/tokens?autoplay=1&x=2')).toBe('tokens')
+	})
+
+	it('returns an empty string for an empty hash', () => {
+		expect(hashPath('')).toBe('')
+	})
+
+	it('returns an empty string for a non-#/ hash', () => {
+		expect(hashPath('#other')).toBe('')
+		expect(hashPath('#')).toBe('')
+		expect(hashPath('nothash')).toBe('')
+	})
+
+	it('returns an empty string for a bare #/ (the root)', () => {
+		expect(hashPath('#/')).toBe('')
+	})
+
+	it('preserves a trailing slash on the path (the engine folds it)', () => {
+		// `hashPath` is purely lexical — trailing-slash insensitivity is the engine's job,
+		// so the slash is kept here and matched leniently downstream.
+		expect(hashPath('#/tokens/')).toBe('tokens/')
+	})
+
+	it('keeps a percent-escaped segment encoded (the engine decodes)', () => {
+		// Decoding is the engine's `matchPath`; `hashPath` only carves the path out.
+		expect(hashPath('#/users/a%20b')).toBe('users/a%20b')
+	})
+})

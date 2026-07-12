@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest'
+import { RouteManager } from '@src/server'
+
+// src/server/http/RouteGroup.ts — the prefixed registrar `RouteManager.group`
+// returns. It prepends its prefix to every added route and forwards to the parent
+// (one shared registry), and nests by concatenating prefixes.
+
+const noop = (): void => {}
+
+describe('RouteGroup — prefixing', () => {
+	it('prepends the prefix to a single added route', () => {
+		const manager = new RouteManager()
+		const group = manager.group('/api')
+		expect(group.prefix).toBe('/api')
+		group.add({ method: 'GET', path: '/health', handler: noop })
+		expect(manager.routes().map((route) => route.path)).toEqual(['/api/health'])
+	})
+
+	it('prepends the prefix across a batch add', () => {
+		const manager = new RouteManager()
+		const group = manager.group('/v1')
+		group.add([
+			{ method: 'GET', path: '/a', handler: noop },
+			{ method: 'POST', path: '/b', handler: noop },
+		])
+		expect(manager.routes().map((route) => route.path)).toEqual(['/v1/a', '/v1/b'])
+	})
+
+	it('nests by concatenating prefixes', () => {
+		const manager = new RouteManager()
+		const api = manager.group('/api')
+		const v2 = api.group('/v2')
+		expect(v2.prefix).toBe('/api/v2')
+		v2.add({ method: 'GET', path: '/users/:id', handler: noop })
+		expect(manager.match('GET', '/api/v2/users/9').status).toBe('matched')
+	})
+})
