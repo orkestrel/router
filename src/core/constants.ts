@@ -30,7 +30,7 @@ export const METHODS: ReadonlySet<string> = Object.freeze(
  * tier, always outranking a param or wildcard segment at the same position.
  *
  * @remarks
- * Consumed by `pathSpecificity` (U1 `helpers.ts`) when ranking candidate
+ * Consumed by `computeSpecificity` (U1 `helpers.ts`) when ranking candidate
  * matches left-to-right at the earliest differing segment (§4 precedence).
  *
  * @example
@@ -45,7 +45,7 @@ export const TIER_LITERAL = 2
  * literal segment and above a wildcard segment at the same position.
  *
  * @remarks
- * Consumed by `pathSpecificity` (U1 `helpers.ts`) alongside {@link TIER_LITERAL}
+ * Consumed by `computeSpecificity` (U1 `helpers.ts`) alongside {@link TIER_LITERAL}
  * and {@link TIER_WILDCARD}.
  *
  * @example
@@ -61,7 +61,7 @@ export const TIER_PARAM = 1
  * equal-specificity tie resolved by registration order).
  *
  * @remarks
- * Consumed by `pathSpecificity` (U1 `helpers.ts`).
+ * Consumed by `computeSpecificity` (U1 `helpers.ts`).
  *
  * @example
  * ```ts

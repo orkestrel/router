@@ -8,7 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 /**
- * Options for `requestFrom` — how to derive the built `Request`'s origin.
+ * Options for `buildRequest` — how to derive the built `Request`'s origin.
  *
  * @remarks
  * - `origin` — an explicit scheme + host to build the request URL against
@@ -29,7 +29,7 @@ export interface RequestOptions {
  * `ServerResponse` pair; never returns a value (writes the response as a
  * side effect).
  */
-export type Listener = (request: IncomingMessage, response: ServerResponse) => void
+export type ListenerFunction = (request: IncomingMessage, response: ServerResponse) => void
 
 /**
  * Derives a consumer's opaque per-request `TState` from the raw
@@ -38,4 +38,4 @@ export type Listener = (request: IncomingMessage, response: ServerResponse) => v
  *
  * @typeParam TState - The consumer's opaque per-request state type
  */
-export type StateResolver<TState> = (message: IncomingMessage) => TState
+export type StateFunction<TState> = (message: IncomingMessage) => TState

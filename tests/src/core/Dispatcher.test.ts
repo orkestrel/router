@@ -88,7 +88,7 @@ describe('Dispatcher — emitter event payload shapes (real listeners, no mocks)
 		dispatcher.destroy()
 	})
 
-	it('emits `miss` with the method, pathname, and "unmatched" kind on a total miss', async () => {
+	it('emits `miss` with the method, pathname, and "unmatched" reason on a total miss', async () => {
 		const dispatcher = createDispatcher()
 		const recorder = createRecorder<DispatcherEventMap['miss']>()
 		dispatcher.emitter.on('miss', recorder.handler)
@@ -97,7 +97,7 @@ describe('Dispatcher — emitter event payload shapes (real listeners, no mocks)
 		dispatcher.destroy()
 	})
 
-	it('emits `miss` with kind "unmethoded" when the path matches but the method does not', async () => {
+	it('emits `miss` with reason "unmethoded" when the path matches but the method does not', async () => {
 		const dispatcher = createDispatcher()
 		const recorder = createRecorder<DispatcherEventMap['miss']>()
 		dispatcher.emitter.on('miss', recorder.handler)
@@ -355,7 +355,7 @@ describe('Dispatcher — unknown verb', () => {
 		dispatcher.destroy()
 	})
 
-	it('emits miss with the raw verb and "unmatched" kind for an unregistered path', async () => {
+	it('emits miss with the raw verb and "unmatched" reason for an unregistered path', async () => {
 		const dispatcher = createDispatcher()
 		const recorder = createRecorder<DispatcherEventMap['miss']>()
 		dispatcher.emitter.on('miss', recorder.handler)
@@ -421,23 +421,6 @@ describe('Dispatcher — params/pattern/url correctness', () => {
 		expect(context?.pattern).toBe('/users/:id')
 		expect(context?.url.pathname).toBe('/users/42')
 		expect(context?.url.searchParams.get('tab')).toBe('posts')
-		dispatcher.destroy()
-	})
-})
-
-describe('Dispatcher — group + nested group registration', () => {
-	it('registers routes through a group and a nested group with prefixes composed', async () => {
-		const dispatcher = createDispatcher()
-		const api = dispatcher.group('/api')
-		const v1 = api.group('/v1')
-		api.add({ method: 'GET', path: '/status', handler: () => new Response('api status') })
-		v1.add({ method: 'GET', path: '/users', handler: () => new Response('v1 users') })
-
-		const statusResponse = await dispatcher.handle(new Request('http://x/api/status'), undefined)
-		expect(await statusResponse.text()).toBe('api status')
-
-		const usersResponse = await dispatcher.handle(new Request('http://x/api/v1/users'), undefined)
-		expect(await usersResponse.text()).toBe('v1 users')
 		dispatcher.destroy()
 	})
 })

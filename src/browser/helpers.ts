@@ -1,5 +1,3 @@
-import type { NavigatorMode } from './types.js'
-
 // The PURE browser-navigation primitives (AGENTS §4.3 multi-word names — module
 // scope, no entity context). Every one is exported (the centralized-file rule,
 // §5): the `Navigator` composes them, and each has its own unit test. NO `node:*`
@@ -12,7 +10,7 @@ import type { NavigatorMode } from './types.js'
  *
  * @remarks
  * The grammar this package matches everywhere is `/`-prefixed (§4 path
- * grammar), so a `'hash'`-mode location's `'#/users/7?x'` becomes `'/users/7'`
+ * grammar), so a hash-mode location's `'#/users/7?x'` becomes `'/users/7'`
  * — a hash pattern is expected to start `'#/'`; anything else (an empty hash,
  * or one that does not begin `'#/'`) yields `''` (the `Navigator` then falls
  * back). Total — never throws.
@@ -22,13 +20,13 @@ import type { NavigatorMode } from './types.js'
  *
  * @example
  * ```ts
- * hashPath('#/users/7?x') // '/users/7'
- * hashPath('#/tokens') // '/tokens'
- * hashPath('') // '' — the Navigator falls back
- * hashPath('#other') // '' — not a `#/` route hash
+ * extractHashPath('#/users/7?x') // '/users/7'
+ * extractHashPath('#/tokens') // '/tokens'
+ * extractHashPath('') // '' — the Navigator falls back
+ * extractHashPath('#other') // '' — not a `#/` route hash
  * ```
  */
-export function hashPath(hash: string): string {
+export function extractHashPath(hash: string): string {
 	if (!hash.startsWith('#/')) return ''
 	const withoutHash = hash.slice(1)
 	const queryIndex = withoutHash.indexOf('?')
@@ -37,37 +35,39 @@ export function hashPath(hash: string): string {
 
 /**
  * Resolve the `/`-prefixed pathname to match for the CURRENT location, in
- * either navigation mode — the one seam `hashPath` (`'hash'` mode) and
- * `'history'`-mode base-stripping share.
+ * either navigation mode — the one seam `extractHashPath` (hash mode) and
+ * history-mode base-stripping share.
  *
  * @remarks
- * `'hash'` mode reads `location.hash` through {@link hashPath}. `'history'`
- * mode reads `location.pathname` and strips a leading `base` prefix when one
- * is configured: `base` itself maps to the root `'/'`; a pathname that is not
+ * Hash mode (`history: false`) reads `location.hash` through
+ * {@link extractHashPath}. History mode (`history: true`) reads
+ * `location.pathname` and strips a leading `base` prefix when one is
+ * configured: `base` itself maps to the root `'/'`; a pathname that is not
  * under `base` is returned unchanged (a base mismatch is not this helper's
  * concern — the `Navigator`'s match then simply misses). Total — never throws.
  *
  * @param location - The `hash` + `pathname` pair to resolve from (accepts a
  *   real `Location` or any object shaped the same, for pure unit testing)
- * @param mode - The navigation substrate (`'hash'` or `'history'`)
- * @param base - The `'history'`-mode path prefix to strip (ignored in `'hash'`
- *   mode; omit for no prefix)
+ * @param history - The navigation substrate: `false` for hash mode, `true`
+ *   for history mode
+ * @param base - The history-mode path prefix to strip (ignored in hash mode;
+ *   omit for no prefix)
  * @returns The `/`-prefixed pathname to match
  *
  * @example
  * ```ts
- * locationPath({ hash: '#/users/7', pathname: '/' }, 'hash') // '/users/7'
- * locationPath({ hash: '', pathname: '/app/users/7' }, 'history', '/app') // '/users/7'
- * locationPath({ hash: '', pathname: '/app' }, 'history', '/app') // '/'
- * locationPath({ hash: '', pathname: '/other/users' }, 'history', '/app') // '/other/users'
+ * resolveLocationPath({ hash: '#/users/7', pathname: '/' }, false) // '/users/7'
+ * resolveLocationPath({ hash: '', pathname: '/app/users/7' }, true, '/app') // '/users/7'
+ * resolveLocationPath({ hash: '', pathname: '/app' }, true, '/app') // '/'
+ * resolveLocationPath({ hash: '', pathname: '/other/users' }, true, '/app') // '/other/users'
  * ```
  */
-export function locationPath(
+export function resolveLocationPath(
 	location: Pick<Location, 'hash' | 'pathname'>,
-	mode: NavigatorMode,
+	history: boolean,
 	base?: string,
 ): string {
-	if (mode === 'hash') return hashPath(location.hash)
+	if (!history) return extractHashPath(location.hash)
 	const pathname = location.pathname
 	if (base === undefined || base === '') return pathname
 	const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base
@@ -78,7 +78,7 @@ export function locationPath(
 
 /**
  * Find the nearest enclosing `<a>` element a DOM event originated from, by
- * walking its composed path — the pure lookup behind `'history'`-mode link
+ * walking its composed path — the pure lookup behind history-mode link
  * interception.
  *
  * @remarks

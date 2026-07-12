@@ -14,7 +14,7 @@
 //    1. Path grammar typing — {@link PathParams}, the template-literal param
 //       extraction that gives handlers a typed `context.params`.
 //    2. The registry value types — {@link RouteEntry}, {@link RouterMatch},
-//       {@link RouterAnswers}, {@link CompiledPath} — plain data, no behavior.
+//       {@link AnswerHandler}, {@link CompiledPath} — plain data, no behavior.
 //    3. The registry entity surface — {@link RouterInterface} / {@link GroupInterface}
 //       / {@link RouterOptions}, the shared `Router` both faces compose.
 //    4. The dispatch surface — {@link Method}, {@link RouteContext},
@@ -234,7 +234,7 @@ export interface CompiledPath {
  *   once at registration.
  * - `meta` — the opaque payload returned (as {@link RouterMatch.meta}) when
  *   this entry is the most-specific match. The engine never inspects it —
- *   the consumer's {@link RouterAnswers} predicate (the override seam)
+ *   the consumer's {@link AnswerHandler} predicate (the override seam)
  *   decides eligibility from it.
  * - `name` — an optional route identifier, carried through onto a match for
  *   consumers that build named links or debug output.
@@ -280,7 +280,7 @@ export interface RouterMatch<Meta> {
  * when omitted, every entry whose path matches is eligible. Total — it never
  * throws (a consumer keeps it pure, per AGENTS §14 guard totality).
  */
-export type RouterAnswers<Meta> = (meta: Meta) => boolean
+export type AnswerHandler<Meta> = (meta: Meta) => boolean
 
 /**
  * Options for `createRouter` — an optional initial entry set, the case-
@@ -326,7 +326,7 @@ export interface RouterOptions<Meta> {
  *   otherwise every entry is kept, even duplicate paths.
  * - `match(pathname, answers?)` — the MOST-SPECIFIC matching entry as a
  *   {@link RouterMatch} (its winning `path`, decoded `params`, `meta`, and
- *   `name`), or `undefined`. The optional {@link RouterAnswers} predicate
+ *   `name`), or `undefined`. The optional {@link AnswerHandler} predicate
  *   filters candidates by `meta` first; omitted ⇒ every path match is
  *   eligible.
  * - `entries()` — ALL registered entries in registration order.
@@ -341,7 +341,7 @@ export interface RouterInterface<Meta> {
 	readonly count: number
 	add(entry: RouteEntry<Meta>): void
 	add(entries: readonly RouteEntry<Meta>[]): void
-	match(pathname: string, answers?: RouterAnswers<Meta>): RouterMatch<Meta> | undefined
+	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined
 	entries(): readonly RouteEntry<Meta>[]
 	entries(pathname: string): readonly RouteEntry<Meta>[]
 	group(prefix: string): GroupInterface<Meta>
@@ -501,7 +501,7 @@ export type DispatchResult<TState> =
  */
 export type DispatcherEventMap = {
 	readonly match: readonly [method: Method, pattern: string]
-	readonly miss: readonly [method: string, pathname: string, kind: 'unmatched' | 'unmethoded']
+	readonly miss: readonly [method: string, pathname: string, reason: 'unmatched' | 'unmethoded']
 }
 
 /**

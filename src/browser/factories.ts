@@ -10,11 +10,11 @@ import { Navigator } from './Navigator.js'
  * interface.
  *
  * @typeParam Meta - The opaque per-route payload a match carries back
- * @param options - The `routes` to register, the navigation `mode` (default
- *   `'hash'`), an optional `base` (`'history'` mode), an optional `fallback`
- *   path, an optional `guard` hook, opt-in link `intercept` (`'history'`
- *   mode), the `sensitive` case toggle, and the AGENTS §13 emitter `on`/`error`
- *   wiring
+ * @param options - The `routes` to register, the `history` toggle (default
+ *   `false`, hash mode), an optional `base` (history mode), an optional
+ *   `fallback` path, an optional `guard` hook, opt-in link `intercept`
+ *   (history mode), the `sensitive` case toggle, and the AGENTS §13 emitter
+ *   `on`/`error` wiring
  * @returns A live {@link NavigatorInterface} handle — call `start()` to begin
  *   dispatching
  *

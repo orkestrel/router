@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import type { GroupInterface, PathParams, RouterInterface } from '../../../src/core/types.js'
+import type { PathParams, RouterInterface } from '../../../src/core/types.js'
 import { createRouter } from '../../../src/core/factories.js'
 import { Router } from '../../../src/core/Router.js'
 
@@ -264,41 +264,6 @@ describe('Router — dedup via `key` (replace-in-place, last write wins)', () =>
 	})
 })
 
-describe('Router — group(prefix) registration', () => {
-	it('prepends the group prefix to every route added through it', () => {
-		const router = new Router<PageMeta>()
-		const api = router.group('/api')
-		api.add({ path: '/users', meta: { page: 'list' } })
-		expect(router.entries().map((entry) => entry.path)).toEqual(['/api/users'])
-		expect(router.match('/api/users')?.meta.page).toBe('list')
-	})
-
-	it('registers a batch through the group (§9.2 array overload)', () => {
-		const router = new Router<PageMeta>()
-		const api = router.group('/api')
-		api.add([
-			{ path: '/a', meta: { page: 'a' } },
-			{ path: '/b', meta: { page: 'b' } },
-		])
-		expect(router.entries().map((entry) => entry.path)).toEqual(['/api/a', '/api/b'])
-	})
-
-	it('nested groups concatenate prefixes', () => {
-		const router = new Router<PageMeta>()
-		const api = router.group('/api')
-		const v1 = api.group('/v1')
-		v1.add({ path: '/users', meta: { page: 'list' } })
-		expect(router.match('/api/v1/users')?.meta.page).toBe('list')
-	})
-
-	it('a group is sugar over the SAME registry — grouped routes count toward the parent', () => {
-		const router = new Router<PageMeta>()
-		const api = router.group('/api')
-		api.add({ path: '/users', meta: { page: 'list' } })
-		expect(router.count).toBe(1)
-	})
-})
-
 describe('Router — case sensitivity', () => {
 	it('matches case-sensitively by default (`sensitive: true`)', () => {
 		const router = new Router<PageMeta>()
@@ -377,7 +342,7 @@ describe('PathParams — type-level inference matrix', () => {
 	})
 })
 
-describe('RouterInterface / GroupInterface — member shape', () => {
+describe('RouterInterface — member shape', () => {
 	it('exposes count, add, match, entries, group, clear on RouterInterface', () => {
 		expectTypeOf<RouterInterface<PageMeta>>().toHaveProperty('count')
 		expectTypeOf<RouterInterface<PageMeta>['add']>().toBeFunction()
@@ -385,12 +350,6 @@ describe('RouterInterface / GroupInterface — member shape', () => {
 		expectTypeOf<RouterInterface<PageMeta>['entries']>().toBeFunction()
 		expectTypeOf<RouterInterface<PageMeta>['group']>().toBeFunction()
 		expectTypeOf<RouterInterface<PageMeta>['clear']>().toBeFunction()
-	})
-
-	it('exposes prefix, add, group on GroupInterface', () => {
-		expectTypeOf<GroupInterface<PageMeta>>().toHaveProperty('prefix')
-		expectTypeOf<GroupInterface<PageMeta>['add']>().toBeFunction()
-		expectTypeOf<GroupInterface<PageMeta>['group']>().toBeFunction()
 	})
 })
 
@@ -484,20 +443,6 @@ describe('Router — answers-seam filtering leaves specificity intact', () => {
 		router.add({ path: '/users/me', meta: { method: 'POST', tag: 'other' } })
 		expect(router.match('/users/me', byTag('shared'))?.path).toBe('/users/me')
 		expect(router.match('/users/7', byTag('shared'))?.path).toBe('/users/:id')
-	})
-})
-
-describe('Router — dedup-key collision across group prefixes', () => {
-	it('two differently-nested group chains composing the SAME final path collide on a path-based key', () => {
-		const router = new Router<PageMeta>({ key: (entry) => entry.path })
-		const flat = router.group('/api/v1')
-		const nested = router.group('/api').group('/v1')
-		// `joinPaths` is pure string composition — a flat group and a nested group
-		// chain that resolve to the identical final path collide on the same dedup key.
-		flat.add({ path: '/users', meta: { page: 'first' } })
-		nested.add({ path: '/users', meta: { page: 'second' } })
-		expect(router.count).toBe(1)
-		expect(router.match('/api/v1/users')?.meta.page).toBe('second')
 	})
 })
 

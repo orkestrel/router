@@ -1,80 +1,82 @@
 import { describe, expect, it } from 'vitest'
-import { findAnchor, hashPath, locationPath } from '../../../src/browser/helpers.js'
+import { extractHashPath, findAnchor, resolveLocationPath } from '../../../src/browser/helpers.js'
 import { safeClick } from '../../setupBrowser.js'
 
 // §16 mirror of `src/browser/helpers.ts` — the pure browser-navigation primitives:
 // hash → pathname extraction, current-location resolution across both navigation
 // modes, and the click-event → anchor lookup that backs link interception.
 
-describe('hashPath', () => {
+describe('extractHashPath', () => {
 	it('extracts the /-prefixed pathname from a #/… hash', () => {
-		expect(hashPath('#/users/7')).toBe('/users/7')
+		expect(extractHashPath('#/users/7')).toBe('/users/7')
 	})
 
 	it('drops a trailing ?query suffix', () => {
-		expect(hashPath('#/users/7?x')).toBe('/users/7')
+		expect(extractHashPath('#/users/7?x')).toBe('/users/7')
 	})
 
 	it('drops a ?query suffix with no path segments beyond the leading slash', () => {
-		expect(hashPath('#/?x=1')).toBe('/')
+		expect(extractHashPath('#/?x=1')).toBe('/')
 	})
 
 	it('returns an empty string for an empty hash', () => {
-		expect(hashPath('')).toBe('')
+		expect(extractHashPath('')).toBe('')
 	})
 
 	it('returns an empty string for a hash not starting with #/', () => {
-		expect(hashPath('#other')).toBe('')
+		expect(extractHashPath('#other')).toBe('')
 	})
 
 	it('returns an empty string for a bare #', () => {
-		expect(hashPath('#')).toBe('')
+		expect(extractHashPath('#')).toBe('')
 	})
 })
 
-describe('locationPath — hash mode', () => {
-	it('delegates to hashPath, ignoring pathname', () => {
-		expect(locationPath({ hash: '#/tokens', pathname: '/should-be-ignored' }, 'hash')).toBe(
+describe('resolveLocationPath — hash mode', () => {
+	it('delegates to extractHashPath, ignoring pathname', () => {
+		expect(resolveLocationPath({ hash: '#/tokens', pathname: '/should-be-ignored' }, false)).toBe(
 			'/tokens',
 		)
 	})
 
 	it('returns an empty string for a non-route hash', () => {
-		expect(locationPath({ hash: '', pathname: '/anything' }, 'hash')).toBe('')
+		expect(resolveLocationPath({ hash: '', pathname: '/anything' }, false)).toBe('')
 	})
 })
 
-describe('locationPath — history mode', () => {
+describe('resolveLocationPath — history mode', () => {
 	it('returns the pathname unchanged with no base configured', () => {
-		expect(locationPath({ hash: '', pathname: '/users/7' }, 'history')).toBe('/users/7')
+		expect(resolveLocationPath({ hash: '', pathname: '/users/7' }, true)).toBe('/users/7')
 	})
 
 	it('returns the pathname unchanged when base is an empty string', () => {
-		expect(locationPath({ hash: '', pathname: '/users/7' }, 'history', '')).toBe('/users/7')
+		expect(resolveLocationPath({ hash: '', pathname: '/users/7' }, true, '')).toBe('/users/7')
 	})
 
 	it('strips a matching base prefix', () => {
-		expect(locationPath({ hash: '', pathname: '/app/users/7' }, 'history', '/app')).toBe('/users/7')
+		expect(resolveLocationPath({ hash: '', pathname: '/app/users/7' }, true, '/app')).toBe(
+			'/users/7',
+		)
 	})
 
 	it('strips a base prefix that ends with a trailing slash', () => {
-		expect(locationPath({ hash: '', pathname: '/app/users/7' }, 'history', '/app/')).toBe(
+		expect(resolveLocationPath({ hash: '', pathname: '/app/users/7' }, true, '/app/')).toBe(
 			'/users/7',
 		)
 	})
 
 	it('maps the bare base pathname to the root', () => {
-		expect(locationPath({ hash: '', pathname: '/app' }, 'history', '/app')).toBe('/')
+		expect(resolveLocationPath({ hash: '', pathname: '/app' }, true, '/app')).toBe('/')
 	})
 
 	it('returns the pathname unchanged when it does not start with base', () => {
-		expect(locationPath({ hash: '', pathname: '/other/users' }, 'history', '/app')).toBe(
+		expect(resolveLocationPath({ hash: '', pathname: '/other/users' }, true, '/app')).toBe(
 			'/other/users',
 		)
 	})
 
 	it('does not strip a base that only shares a string prefix, not a path segment', () => {
-		expect(locationPath({ hash: '', pathname: '/apple/users' }, 'history', '/app')).toBe(
+		expect(resolveLocationPath({ hash: '', pathname: '/apple/users' }, true, '/app')).toBe(
 			'/apple/users',
 		)
 	})

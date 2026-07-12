@@ -51,13 +51,13 @@ export function escapeRegExp(value: string): string {
  *
  * @example
  * ```ts
- * canonicalPath('/users/') // '/users'
- * canonicalPath('/users') // '/users'
- * canonicalPath('/') // '/'
- * canonicalPath('') // ''
+ * canonicalizePath('/users/') // '/users'
+ * canonicalizePath('/users') // '/users'
+ * canonicalizePath('/') // '/'
+ * canonicalizePath('') // ''
  * ```
  */
-export function canonicalPath(path: string): string {
+export function canonicalizePath(path: string): string {
 	return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
@@ -108,7 +108,7 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 	const params: string[] = []
 	// Normalize ONE trailing slash off the pattern so `/users/` compiles like `/users`
 	// — except the root `/` (and the empty pattern), which must keep matching `/` / `''`.
-	const normalized = canonicalPath(path)
+	const normalized = canonicalizePath(path)
 	const segments = normalized.split('/')
 	const compiledSegments = segments.map((segment, index) => {
 		const isFinal = index === segments.length - 1
@@ -268,14 +268,14 @@ export function classifySegment(segment: string, isFinal: boolean): number {
  *
  * @example
  * ```ts
- * pathSpecificity('/users/me') // [2, 2]
- * pathSpecificity('/users/:id') // [2, 1]
- * pathSpecificity('/files/*rest') // [2, 0]
- * pathSpecificity('/a:b') // [2] — literal, not param — the classification fix
+ * computeSpecificity('/users/me') // [2, 2]
+ * computeSpecificity('/users/:id') // [2, 1]
+ * computeSpecificity('/files/*rest') // [2, 0]
+ * computeSpecificity('/a:b') // [2] — literal, not param — the classification fix
  * ```
  */
-export function pathSpecificity(path: string): readonly number[] {
-	const segments = canonicalPath(path).split('/')
+export function computeSpecificity(path: string): readonly number[] {
+	const segments = canonicalizePath(path).split('/')
 	return segments.map((segment, index) => classifySegment(segment, index === segments.length - 1))
 }
 
@@ -285,7 +285,7 @@ export function pathSpecificity(path: string): readonly number[] {
  * registration-order-independent).
  *
  * @remarks
- * Compares the two paths' {@link pathSpecificity} vectors LEFT-TO-RIGHT and
+ * Compares the two paths' {@link computeSpecificity} vectors LEFT-TO-RIGHT and
  * returns a standard `Array.sort` ordering: a NEGATIVE number when `a` is MORE
  * specific than `b` (so a descending-specificity sort puts `a` first),
  * positive when `b` is more specific, `0` when neither out-ranks the other
@@ -306,8 +306,8 @@ export function pathSpecificity(path: string): readonly number[] {
  * ```
  */
 export function compareSpecificity(a: string, b: string): number {
-	const left = pathSpecificity(a)
-	const right = pathSpecificity(b)
+	const left = computeSpecificity(a)
+	const right = computeSpecificity(b)
 	const length = Math.max(left.length, right.length)
 	for (let index = 0; index < length; index += 1) {
 		// A missing segment ranks below any real one (the shorter path is less specific).

@@ -4,14 +4,14 @@ import { createDispatcher } from '../../../src/core/index.js'
 import {
 	createListener,
 	isEncryptedSocket,
-	requestFrom,
+	buildRequest,
 	sendResponse,
 } from '../../../src/server/helpers.js'
 import { createRecorder } from '../../setup.js'
 import { startServer } from '../../setupServer.js'
 
 // §16 mirror of `src/server/helpers.ts` — pins the whole node adapter over
-// REAL sockets (no mocks, §16): `requestFrom` fidelity, client-disconnect →
+// REAL sockets (no mocks, §16): `buildRequest` fidelity, client-disconnect →
 // `request.signal` abort, `sendResponse` writing, and `createListener`
 // end-to-end round-trips through a real `Dispatcher` + `node:http` server.
 
@@ -32,11 +32,11 @@ describe('isEncryptedSocket', () => {
 	})
 })
 
-describe('requestFrom', () => {
+describe('buildRequest', () => {
 	it('carries the method, pathname, search, and headers over verbatim', async () => {
 		const captured = createRecorder<[Request]>()
 		const server = await startServer((request, response) => {
-			captured.handler(requestFrom(request))
+			captured.handler(buildRequest(request))
 			response.end('ok')
 		})
 		await fetch(`${server.url}/users/7?x=1`, { headers: { 'X-Test': 'yes' } })
@@ -54,7 +54,7 @@ describe('requestFrom', () => {
 	it('has no body for a GET request', async () => {
 		const captured = createRecorder<[Request]>()
 		const server = await startServer((request, response) => {
-			captured.handler(requestFrom(request))
+			captured.handler(buildRequest(request))
 			response.end('ok')
 		})
 		await fetch(server.url)
@@ -68,7 +68,7 @@ describe('requestFrom', () => {
 		const captured = createRecorder<[string]>()
 		const server = await startServer((request, response) => {
 			void (async () => {
-				const built = requestFrom(request)
+				const built = buildRequest(request)
 				captured.handler(await built.text())
 				response.end('ok')
 			})()
@@ -82,7 +82,7 @@ describe('requestFrom', () => {
 	it('derives the origin host from the Host header, defaulting to localhost when absent', async () => {
 		const captured = createRecorder<[Request]>()
 		const server = await startServer((request, response) => {
-			captured.handler(requestFrom(request))
+			captured.handler(buildRequest(request))
 			response.end('ok')
 		})
 		await new Promise<void>((resolve) => {
@@ -103,7 +103,7 @@ describe('requestFrom', () => {
 	it('honors an explicit origin option over the derived scheme and host', async () => {
 		const captured = createRecorder<[Request]>()
 		const server = await startServer((request, response) => {
-			captured.handler(requestFrom(request, { origin: 'https://api.example.com' }))
+			captured.handler(buildRequest(request, { origin: 'https://api.example.com' }))
 			response.end('ok')
 		})
 		await fetch(`${server.url}/health`)
@@ -117,7 +117,7 @@ describe('requestFrom', () => {
 	it('appends each set-cookie value individually rather than joining them', async () => {
 		const captured = createRecorder<[Request]>()
 		const server = await startServer((request, response) => {
-			captured.handler(requestFrom(request))
+			captured.handler(buildRequest(request))
 			response.end('ok')
 		})
 		await new Promise<void>((resolve) => {
@@ -141,7 +141,7 @@ describe('requestFrom', () => {
 		const captured = createRecorder<[string]>()
 		const server = await startServer((request, response) => {
 			void (async () => {
-				const built = requestFrom(request)
+				const built = buildRequest(request)
 				captured.handler(await built.text())
 				response.end('ok')
 			})()
@@ -171,7 +171,7 @@ describe('requestFrom', () => {
 	it('aborts request.signal when the client disconnects before the message completes', async () => {
 		const recorder = createRecorder<[unknown]>()
 		const server = await startServer((incoming, response) => {
-			const request = requestFrom(incoming)
+			const request = buildRequest(incoming)
 			request.signal.addEventListener('abort', () => recorder.handler(request.signal.reason))
 			// Never respond — the test disconnects before this handler would finish.
 			void response

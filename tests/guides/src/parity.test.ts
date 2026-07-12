@@ -39,7 +39,6 @@ function walk(dir: string, acc: Record<string, string>): void {
 const files: Record<string, string> = {}
 for (const dir of WALK_DIRS) walk(dir, files)
 files['AGENTS.md'] = readFileSync(join(ROOT, 'AGENTS.md'), 'utf8')
-files['PROPOSAL.md'] = readFileSync(join(ROOT, 'PROPOSAL.md'), 'utf8')
 
 function readText(relative: string): string {
 	const text = files[relative]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-	canonicalPath,
+	canonicalizePath,
 	classifySegment,
 	compareSpecificity,
 	compilePath,
@@ -9,7 +9,7 @@ import {
 	joinPaths,
 	matchPath,
 	parseMethod,
-	pathSpecificity,
+	computeSpecificity,
 } from '../../../src/core/helpers.js'
 
 // §16 mirror of `src/core/helpers.ts` — pins every pure path-matching primitive:
@@ -30,21 +30,21 @@ describe('escapeRegExp', () => {
 	})
 })
 
-describe('canonicalPath', () => {
+describe('canonicalizePath', () => {
 	it('strips a single trailing slash from a non-root path', () => {
-		expect(canonicalPath('/users/')).toBe('/users')
+		expect(canonicalizePath('/users/')).toBe('/users')
 	})
 
 	it('leaves a path with no trailing slash unchanged', () => {
-		expect(canonicalPath('/users')).toBe('/users')
+		expect(canonicalizePath('/users')).toBe('/users')
 	})
 
 	it('exempts the root path `/`', () => {
-		expect(canonicalPath('/')).toBe('/')
+		expect(canonicalizePath('/')).toBe('/')
 	})
 
 	it("exempts the empty pattern `''`", () => {
-		expect(canonicalPath('')).toBe('')
+		expect(canonicalizePath('')).toBe('')
 	})
 })
 
@@ -209,21 +209,21 @@ describe('classifySegment', () => {
 	})
 })
 
-describe('pathSpecificity', () => {
+describe('computeSpecificity', () => {
 	it('vectors a literal-only path as all literal tiers', () => {
-		expect(pathSpecificity('/users/me')).toEqual([2, 2, 2])
+		expect(computeSpecificity('/users/me')).toEqual([2, 2, 2])
 	})
 
 	it('vectors a param segment at its position', () => {
-		expect(pathSpecificity('/users/:id')).toEqual([2, 2, 1])
+		expect(computeSpecificity('/users/:id')).toEqual([2, 2, 1])
 	})
 
 	it('vectors a final wildcard segment at its position', () => {
-		expect(pathSpecificity('/files/*rest')).toEqual([2, 2, 0])
+		expect(computeSpecificity('/files/*rest')).toEqual([2, 2, 0])
 	})
 
 	it('vectors a literal segment containing a colon mid-string as literal — the classification fix', () => {
-		expect(pathSpecificity('/a:b')).toEqual([2, 2])
+		expect(computeSpecificity('/a:b')).toEqual([2, 2])
 	})
 })
 

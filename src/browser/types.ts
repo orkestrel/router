@@ -28,25 +28,13 @@ import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
  *
  * @remarks
  * `navigate` fires once per successful resolution (start, hashchange/popstate,
- * `go`, link interception) — never for a vetoed or superseded navigation
+ * `navigate()`, link interception) — never for a vetoed or superseded navigation
  * ({@link NavigatorOptions.guard}), and never when a miss's fallback also
  * misses (§21-honest: `active` is left `undefined`, nothing emitted).
  */
 export type NavigatorEventMap<Meta> = {
 	readonly navigate: readonly [match: RouterMatch<Meta>]
 }
-
-/**
- * The navigation substrate a {@link NavigatorInterface} drives — `'hash'`
- * (`#/…` + `hashchange`, zero server configuration) or `'history'`
- * (`pushState`/`popstate`, with an optional {@link NavigatorOptions.base}).
- *
- * @remarks
- * The union leaves room for a future `'navigation'` mode (the Navigation API)
- * without reshaping the surface — not built in v1 (Safari's
- * `precommitHandler` gap makes it unsafe as a sole substrate).
- */
-export type NavigatorMode = 'hash' | 'history'
 
 /**
  * Options for `createNavigator` — the `routes` to dispatch between, the
@@ -59,11 +47,11 @@ export type NavigatorMode = 'hash' | 'history'
  * - `routes` — the route entries to register once with the shared core
  *   `Router` (each `path` compiled once); registration order does NOT decide
  *   precedence — specificity does (literal-over-param-over-wildcard).
- * - `mode` — `'hash'` (default, zero server configuration) or `'history'`
- *   (`pushState`/`popstate`).
- * - `base` — a `'history'`-mode path prefix stripped from `location.pathname`
- *   before matching, and prepended when navigating (`go`, link interception).
- *   Ignored in `'hash'` mode.
+ * - `history` — `false` (default, hash mode: `#/…` + `hashchange`, zero
+ *   server configuration) or `true` (history mode: `pushState`/`popstate`).
+ * - `base` — a history-mode path prefix stripped from `location.pathname`
+ *   before matching, and prepended when navigating (`navigate`, link
+ *   interception). Ignored unless `history` is set.
  * - `fallback` — the route PATTERN to resolve when the current location
  *   matches NOTHING. Omitted ⇒ the first route's path. A `fallback` that
  *   itself matches no registered route leaves `active` `undefined` and emits
@@ -75,9 +63,9 @@ export type NavigatorMode = 'hash' | 'history'
  *   NEWER navigation starts (or on `stop`/`destroy`), so a slow async guard
  *   can cancel its own work off it. A throw routes to the `error` handler
  *   below and vetoes the navigation.
- * - `intercept` — opt-in same-origin `<a>` click interception (`'history'`
- *   mode only): a plain left-click on a same-origin link with no modifier
- *   keys, no `target`, and no `download` attribute is intercepted into `go`.
+ * - `intercept` — opt-in same-origin `<a>` click interception (history mode
+ *   only): a plain left-click on a same-origin link with no modifier keys,
+ *   no `target`, and no `download` attribute is intercepted into `navigate`.
  * - `sensitive` — forwarded to the underlying `Router` (default `true`).
  * - `on` — initial `NavigatorEventMap` listeners (AGENTS §8/§13).
  * - `error` — the emitter's listener-error handler (AGENTS §13); ALSO the
@@ -86,7 +74,7 @@ export type NavigatorMode = 'hash' | 'history'
  */
 export interface NavigatorOptions<Meta> {
 	readonly routes: readonly RouteEntry<Meta>[]
-	readonly mode?: NavigatorMode
+	readonly history?: boolean
 	readonly base?: string
 	readonly fallback?: string
 	readonly guard?: (
@@ -115,12 +103,12 @@ export interface NavigatorOptions<Meta> {
  * - `emitter` — the AGENTS §13 observable surface for {@link NavigatorEventMap}.
  * - `active` — the currently-resolved {@link RouterMatch}, or `undefined`
  *   before the first resolve (or when a miss's fallback also misses).
- * - `start()` — begin listening (`hashchange` in `'hash'` mode; `popstate` +
- *   optional link interception in `'history'` mode) and resolve the current
+ * - `start()` — begin listening (`hashchange` in hash mode; `popstate` +
+ *   optional link interception in history mode) and resolve the current
  *   location now. Idempotent — a second call is a no-op.
  * - `stop()` — stop listening. Idempotent.
- * - `go(path)` — navigate programmatically: sets `location.hash` (`'hash'`
- *   mode) or calls `history.pushState` (`'history'` mode), then resolves. A
+ * - `navigate(path)` — navigate programmatically: sets `location.hash` (hash
+ *   mode) or calls `history.pushState` (history mode), then resolves. A
  *   no-op hash navigation (already the active hash) resolves directly, since
  *   no `hashchange` would otherwise fire.
  * - `match(path)` — a PURE lookup through the underlying `Router`: no
@@ -133,7 +121,7 @@ export interface NavigatorInterface<Meta> {
 	readonly active: RouterMatch<Meta> | undefined
 	start(): void
 	stop(): void
-	go(path: string): void
+	navigate(path: string): void
 	match(path: string): RouterMatch<Meta> | undefined
 	destroy(): void
 }

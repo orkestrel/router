@@ -1,14 +1,15 @@
 import type {
+	AnswerHandler,
 	CompiledPath,
 	GroupInterface,
 	RouteEntry,
-	RouterAnswers,
 	RouterInterface,
 	RouterMatch,
 	RouterOptions,
 } from './types.js'
 import { isString } from '@orkestrel/contract'
-import { compareSpecificity, compilePath, joinPaths, matchPath } from './helpers.js'
+import { compareSpecificity, compilePath, matchPath } from './helpers.js'
+import { Group } from './Group.js'
 
 /**
  * The path-matching + registry engine — registers `{ path, meta, name? }`
@@ -63,7 +64,7 @@ export class Router<Meta> implements RouterInterface<Meta> {
 		for (const entry of inputs) this.#register(entry)
 	}
 
-	match(pathname: string, answers?: RouterAnswers<Meta>): RouterMatch<Meta> | undefined {
+	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined {
 		let best: { entry: RouteEntry<Meta>; params: Readonly<Record<string, string>> } | undefined
 		for (let index = 0; index < this.#entries.length; index += 1) {
 			const entry = this.#entries[index]
@@ -132,47 +133,5 @@ export class Router<Meta> implements RouterInterface<Meta> {
 		this.#index.set(key, this.#entries.length)
 		this.#entries.push(entry)
 		this.#compiled.push(compiled)
-	}
-}
-
-/**
- * A prefix-scoped registration handle over a {@link Router} — pure string
- * composition (AGENTS §4.2.2), no independent state or storage.
- *
- * @typeParam Meta - The entry payload type, matching the owning router
- *
- * @remarks
- * Every `add` composes `entry.path` as `joinPaths(prefix, entry.path)` and
- * forwards to the OWNING router, so grouped routes land in the SAME registry.
- * `group(prefix)` nests, composing prefixes via {@link joinPaths}.
- *
- * @example
- * ```ts
- * const router = new Router<{ readonly page: string }>()
- * const api = router.group('/api')
- * api.add({ path: '/users', meta: { page: 'list' } })
- * router.match('/api/users')?.path // '/api/users'
- * ```
- */
-export class Group<Meta> implements GroupInterface<Meta> {
-	readonly prefix: string
-	readonly #parent: RouterInterface<Meta>
-
-	constructor(parent: RouterInterface<Meta>, prefix: string) {
-		this.#parent = parent
-		this.prefix = prefix
-	}
-
-	add(entry: RouteEntry<Meta>): void
-	add(entries: readonly RouteEntry<Meta>[]): void
-	add(input: RouteEntry<Meta> | readonly RouteEntry<Meta>[]): void {
-		const inputs = Array.isArray(input) ? input : [input]
-		this.#parent.add(
-			inputs.map((entry) => ({ ...entry, path: joinPaths(this.prefix, entry.path) })),
-		)
-	}
-
-	group(prefix: string): GroupInterface<Meta> {
-		return new Group<Meta>(this.#parent, joinPaths(this.prefix, prefix))
 	}
 }

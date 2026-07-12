@@ -85,23 +85,23 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 		expect(navigator.active?.path).toBe('/users/me')
 	})
 
-	it('go(path) navigates by setting the hash and re-resolving', async () => {
+	it('navigate(path) navigates by setting the hash and re-resolving', async () => {
 		const navigator = start([
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
-		navigator.go('/palette')
+		navigator.navigate('/palette')
 		await waitForDelay()
 		expect(window.location.hash).toBe('#/palette')
 		expect(navigator.active?.path).toBe('/palette')
 	})
 
-	it('go(path) re-resolves synchronously when the destination is already the active hash', async () => {
+	it('navigate(path) re-resolves synchronously when the destination is already the active hash', async () => {
 		await setHash('#/tokens')
 		const navigator = start([{ path: '/tokens', meta: { page: 'tokens' } }])
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
 		navigator.emitter.on('navigate', recorder.handler)
-		navigator.go('/tokens') // same hash → no hashchange fires → resolves directly
+		navigator.navigate('/tokens') // same hash → no hashchange fires → resolves directly
 		expect(recorder.count).toBe(1)
 		expect(recorder.calls[0]?.[0].path).toBe('/tokens')
 	})
@@ -150,20 +150,20 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
 			],
-			{ mode: 'history' },
+			{ history: true },
 		)
 		expect(navigator.active?.path).toBe('/tokens')
 	})
 
-	it('go(path) pushes state and resolves synchronously', () => {
+	it('navigate(path) pushes state and resolves synchronously', () => {
 		const navigator = start(
 			[
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
 			],
-			{ mode: 'history' },
+			{ history: true },
 		)
-		navigator.go('/palette')
+		navigator.navigate('/palette')
 		expect(window.location.pathname).toBe('/palette')
 		expect(navigator.active?.path).toBe('/palette')
 	})
@@ -174,10 +174,10 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
 			],
-			{ mode: 'history' },
+			{ history: true },
 		)
-		navigator.go('/tokens') // both traversal entries belong to THIS test — no cross-test history reliance
-		navigator.go('/palette')
+		navigator.navigate('/tokens') // both traversal entries belong to THIS test — no cross-test history reliance
+		navigator.navigate('/palette')
 		expect(navigator.active?.path).toBe('/palette')
 		const navigated = new Promise<void>((resolve) => {
 			navigator.emitter.once('navigate', () => resolve())
@@ -190,20 +190,20 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 	it('strips a configured base before matching', () => {
 		settleHistory('/app/users/7')
 		const navigator = start([{ path: '/users/:id', meta: { page: 'user' } }], {
-			mode: 'history',
+			history: true,
 			base: '/app',
 		})
 		expect(navigator.active?.path).toBe('/users/:id')
 		expect(navigator.active?.params).toEqual({ id: '7' })
 	})
 
-	it('go(path) composes the configured base back onto pushState', () => {
+	it('navigate(path) composes the configured base back onto pushState', () => {
 		settleHistory('/app')
 		const navigator = start([{ path: '/users/:id', meta: { page: 'user' } }], {
-			mode: 'history',
+			history: true,
 			base: '/app',
 		})
-		navigator.go('/users/9')
+		navigator.navigate('/users/9')
 		expect(window.location.pathname).toBe('/app/users/9')
 		expect(navigator.active?.params).toEqual({ id: '9' })
 	})
@@ -217,7 +217,7 @@ describe('Navigator — history mode: link interception', () => {
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
 			],
-			{ mode: 'history', intercept: true },
+			{ history: true, intercept: true },
 		)
 		const anchor = createAnchor('/tokens')
 		try {
@@ -237,7 +237,7 @@ describe('Navigator — history mode: link interception', () => {
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
 			],
-			{ mode: 'history' },
+			{ history: true },
 		)
 		const anchor = createAnchor('/tokens')
 		try {
@@ -255,7 +255,7 @@ describe('Navigator — history mode: link interception', () => {
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
 			],
-			{ mode: 'history', intercept: true },
+			{ history: true, intercept: true },
 		)
 		const anchor = createAnchor('/tokens')
 		try {
@@ -274,7 +274,7 @@ describe('Navigator — history mode: link interception', () => {
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
 			],
-			{ mode: 'history', intercept: true },
+			{ history: true, intercept: true },
 		)
 		const anchor = createAnchor('/tokens', { target: '_blank' })
 		try {
@@ -292,7 +292,7 @@ describe('Navigator — history mode: link interception', () => {
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
 			],
-			{ mode: 'history', intercept: true },
+			{ history: true, intercept: true },
 		)
 		const anchor = createAnchor('/tokens', { download: true })
 		try {
@@ -363,7 +363,7 @@ describe('Navigator — guard matrix', () => {
 				{ path: '/a', meta: { page: 'a' } },
 				{ path: '/b', meta: { page: 'b' } },
 			],
-			mode: 'history',
+			history: true,
 			guard: (to, _from, signal) => {
 				if (to.path === '/a') {
 					return first.promise.then(() => {
@@ -376,8 +376,8 @@ describe('Navigator — guard matrix', () => {
 		})
 		navigators.push(navigator)
 		settleHistory('/')
-		navigator.go('/a') // guard pending, supersede handle A minted
-		navigator.go('/b') // supersedes A, B's own guard resolves in a microtask
+		navigator.navigate('/a') // guard pending, supersede handle A minted
+		navigator.navigate('/b') // supersedes A, B's own guard resolves in a microtask
 		await waitForDelay()
 		expect(navigator.active?.path).toBe('/b')
 		first.resolve(true) // A's stale verdict arrives after supersession
@@ -393,7 +393,7 @@ describe('Navigator — guard matrix', () => {
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
 		const navigator = createNavigator<PageMeta>({
 			routes: [{ path: '/a', meta: { page: 'a' } }],
-			mode: 'history',
+			history: true,
 			fallback: '/ghost',
 			guard: (_to, _from, signal) =>
 				deferred.promise.then((verdict) => {
@@ -404,8 +404,8 @@ describe('Navigator — guard matrix', () => {
 		})
 		navigators.push(navigator)
 		settleHistory('/')
-		navigator.go('/a') // guard pending, supersede handle minted
-		navigator.go('/nope') // total miss — path AND fallback both match nothing — must supersede
+		navigator.navigate('/a') // guard pending, supersede handle minted
+		navigator.navigate('/nope') // total miss — path AND fallback both match nothing — must supersede
 		expect(navigator.active).toBeUndefined()
 		deferred.resolve(true) // the superseded guard's stale verdict arrives after the miss
 		await waitForDelay()
@@ -475,7 +475,7 @@ describe('Navigator — guard matrix', () => {
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
 			],
-			mode: 'history',
+			history: true,
 			guard: (_to, from) => {
 				seen.push(from)
 				return true
@@ -485,7 +485,7 @@ describe('Navigator — guard matrix', () => {
 		settleHistory('/tokens')
 		navigator.start()
 		await waitForDelay() // let the first navigation's guard verdict commit before the second
-		navigator.go('/palette')
+		navigator.navigate('/palette')
 		expect(seen).toHaveLength(2)
 		expect(seen[0]).toBeUndefined()
 		expect(seen[1]?.path).toBe('/tokens')
@@ -501,7 +501,7 @@ describe('Navigator — the navigate event', () => {
 			{ path: '/users/:id', meta: { page: 'user' } },
 		])
 		navigator.emitter.on('navigate', recorder.handler)
-		navigator.go('/users/7')
+		navigator.navigate('/users/7')
 		await waitForDelay()
 		expect(recorder.count).toBe(1)
 		expect(recorder.calls[0]?.[0]).toEqual({
@@ -541,7 +541,7 @@ describe('Navigator — the navigate event', () => {
 		navigator.emitter.on('navigate', (match) => seen.push(match.path))
 		navigator.start()
 		expect(seen).toEqual(['/tokens'])
-		navigator.go('/palette')
+		navigator.navigate('/palette')
 		await waitForDelay()
 		expect(seen).toEqual(['/tokens', '/palette'])
 	})
@@ -611,7 +611,7 @@ describe('Navigator — match(path) is a pure lookup', () => {
 				{ path: '/users/:id', meta: { page: 'user' } },
 				{ path: '/users/me', meta: { page: 'me' } },
 			],
-			mode: 'history',
+			history: true,
 		})
 		navigators.push(navigator)
 		expect(navigator.match('/users/7')).toEqual({
@@ -688,13 +688,13 @@ describe('Navigator — destroy() idempotence', () => {
 })
 
 describe('NavigatorInterface — member shape', () => {
-	it('exposes router, emitter, active, start, stop, go, match, destroy', () => {
+	it('exposes router, emitter, active, start, stop, navigate, match, destroy', () => {
 		expectTypeOf<NavigatorInterface<PageMeta>>().toHaveProperty('router')
 		expectTypeOf<NavigatorInterface<PageMeta>>().toHaveProperty('emitter')
 		expectTypeOf<NavigatorInterface<PageMeta>>().toHaveProperty('active')
 		expectTypeOf<NavigatorInterface<PageMeta>['start']>().toBeFunction()
 		expectTypeOf<NavigatorInterface<PageMeta>['stop']>().toBeFunction()
-		expectTypeOf<NavigatorInterface<PageMeta>['go']>().toBeFunction()
+		expectTypeOf<NavigatorInterface<PageMeta>['navigate']>().toBeFunction()
 		expectTypeOf<NavigatorInterface<PageMeta>['match']>().toBeFunction()
 		expectTypeOf<NavigatorInterface<PageMeta>['destroy']>().toBeFunction()
 	})

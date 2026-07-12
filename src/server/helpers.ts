@@ -7,13 +7,13 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DispatcherInterface } from '@src/core'
-import type { Listener, RequestOptions, StateResolver } from './types.js'
+import type { ListenerFunction, RequestOptions, StateFunction } from './types.js'
 import { createAbort } from '@orkestrel/abort'
 import { isRecord } from '@orkestrel/contract'
 
 /**
  * Determine whether a `node:http` connection socket is TLS-encrypted — the
- * total, never-throwing narrow (AGENTS §14) `requestFrom` uses to pick the
+ * total, never-throwing narrow (AGENTS §14) `buildRequest` uses to pick the
  * derived scheme (`https` vs `http`).
  *
  * @param socket - The connection value to test (typically `message.socket`)
@@ -61,16 +61,16 @@ export function isEncryptedSocket(socket: unknown): socket is { readonly encrypt
  *
  * @example
  * ```ts
- * import { requestFrom } from '@src/server'
+ * import { buildRequest } from '@src/server'
  * import http from 'node:http'
  *
  * const server = http.createServer((incoming) => {
- * 	const request = requestFrom(incoming)
+ * 	const request = buildRequest(incoming)
  * 	console.log(request.method, request.url)
  * })
  * ```
  */
-export function requestFrom(message: IncomingMessage, options?: RequestOptions): Request {
+export function buildRequest(message: IncomingMessage, options?: RequestOptions): Request {
 	const method = message.method ?? 'GET'
 	const host = message.headers.host ?? 'localhost'
 	const scheme = isEncryptedSocket(message.socket) ? 'https' : 'http'
@@ -201,12 +201,12 @@ export async function sendResponse(response: Response, target: ServerResponse): 
  */
 export function createListener<TState>(
 	dispatcher: DispatcherInterface<TState>,
-	state: StateResolver<TState>,
-): Listener {
+	state: StateFunction<TState>,
+): ListenerFunction {
 	return (request, response) => {
 		void (async () => {
 			try {
-				const converted = requestFrom(request)
+				const converted = buildRequest(request)
 				const result = await dispatcher.handle(converted, state(request))
 				await sendResponse(result, response)
 			} catch (error) {
