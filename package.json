@@ -1,21 +1,21 @@
 {
-	"name": "@orkestrel/emitter",
+	"name": "@orkestrel/router",
 	"version": "0.0.1",
-	"description": "A typed, synchronous event emitter — listener isolation with an error hook, once/off/clear/destroy, and no scheduler or listener cap. Part of the @orkestrel line.",
+	"description": "A typed request router for the @orkestrel line — server and browser environments. Part of the @orkestrel line.",
 	"keywords": [
-		"emitter",
-		"event-emitter",
-		"events",
-		"hooks",
-		"typed-events",
-		"typescript"
+		"browser",
+		"router",
+		"routing",
+		"server",
+		"typescript",
+		"url"
 	],
-	"homepage": "https://github.com/orkestrel/emitter#readme",
-	"bugs": "https://github.com/orkestrel/emitter/issues",
+	"homepage": "https://github.com/orkestrel/router#readme",
+	"bugs": "https://github.com/orkestrel/router/issues",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/orkestrel/emitter.git"
+		"url": "git+https://github.com/orkestrel/router.git"
 	},
 	"files": [
 		"dist",
