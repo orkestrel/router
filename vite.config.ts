@@ -112,7 +112,7 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 					// resolves `@src/core` from source through the shared `resolve` alias.
 					rolldownOptions: {
 						external: (id: string) => id === '@src/core',
-						output: { paths: { '@src/core': '../core/index.cjs' } },
+						output: { paths: { '@src/core': '../core/index.js' } },
 					},
 				},
 				test: {
@@ -133,10 +133,11 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 	)
 
 // Extends srcCore: server-only library (`src/server`, e.g. the SQLite wrapper +
-// driver over node:sqlite). Builds a CJS lib for Node and runs its tests in the
-// node environment. Externalizes `node:*` (so node:sqlite is never bundled) AND
-// `@src/core` → the sibling `dist/src/core` (CJS) build, exactly as srcBrowser
-// does (core and server ship as two subpaths of one package). Build-only — the
+// driver over node:sqlite). Builds a dual ESM+CJS lib for Node and runs its
+// tests in the node environment. Externalizes `node:*` (so node:sqlite is
+// never bundled) AND `@src/core` → the sibling `dist/src/core` build
+// (format-aware: `../core/index.js` for the ESM output, `../core/index.cjs`
+// for the CJS output), exactly as core ships dual-format. Build-only — the
 // test project resolves `@src/core` from source through the shared `resolve` alias.
 export const srcServer = (config?: UserConfig): UserConfig =>
 	srcCore(
@@ -145,14 +146,25 @@ export const srcServer = (config?: UserConfig): UserConfig =>
 				build: {
 					lib: {
 						entry: resolveWorkspacePath('src/server/index.ts'),
-						formats: ['cjs'],
-						fileName: () => 'index.cjs',
+						formats: ['es', 'cjs'],
+						fileName: (format: string) => (format === 'es' ? 'index.js' : 'index.cjs'),
 					},
 					outDir: 'dist/src/server',
 					target: 'node22',
 					rolldownOptions: {
 						external: (id: string) => id === '@src/core' || id.startsWith('node:'),
-						output: { paths: { '@src/core': '../core/index.cjs' } },
+						output: [
+							{
+								format: 'es',
+								entryFileNames: 'index.js',
+								paths: { '@src/core': '../core/index.js' },
+							},
+							{
+								format: 'cjs',
+								entryFileNames: 'index.cjs',
+								paths: { '@src/core': '../core/index.cjs' },
+							},
+						],
 					},
 				},
 				test: {
