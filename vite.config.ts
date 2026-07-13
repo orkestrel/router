@@ -91,10 +91,11 @@ export const guides = (config?: UserConfig): UserConfig =>
 		),
 	)
 
-// Extends srcCore: browser-only library (`src/browser`, e.g. the IndexedDB
-// driver). Builds an ES lib and runs its tests in a real Chromium via
-// Playwright, where DOM and `indexedDB` are available. No Vue — this surface is
-// plain TypeScript; add the plugin here if a browser app surface ever needs it.
+// Extends srcCore: browser-only library (`src/browser`, the headless
+// History/hash `Navigator` entity that composes one core `Router`). Builds an
+// ES lib and runs its tests in a real Chromium via Playwright, where DOM and
+// `history`/`location` are available. No Vue — this surface is plain
+// TypeScript; add the plugin here if a browser app surface ever needs it.
 export const srcBrowser = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
@@ -107,11 +108,12 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 					},
 					outDir: 'dist/src/browser',
 					// The browser lib and the core lib ship as two subpaths of one package,
-					// so the published build references the sibling `dist/src/core` (CJS)
+					// so the published build references the sibling `dist/src/core` (ESM)
 					// instead of inlining a copy. Build-only — the test project below
 					// resolves `@src/core` from source through the shared `resolve` alias.
+					// Declared `@orkestrel/*` deps are externalized too, never bundled.
 					rolldownOptions: {
-						external: (id: string) => id === '@src/core',
+						external: (id: string) => id === '@src/core' || id.startsWith('@orkestrel/'),
 						output: { paths: { '@src/core': '../core/index.js' } },
 					},
 				},
@@ -132,10 +134,11 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 		),
 	)
 
-// Extends srcCore: server-only library (`src/server`, e.g. the SQLite wrapper +
-// driver over node:sqlite). Builds a dual ESM+CJS lib for Node and runs its
-// tests in the node environment. Externalizes `node:*` (so node:sqlite is
-// never bundled) AND `@src/core` → the sibling `dist/src/core` build
+// Extends srcCore: server-only library (`src/server`, the `node:http` ↔ fetch
+// glue that adapts a core `Dispatcher` into a request listener). Builds a
+// dual ESM+CJS lib for Node and runs its tests in the node environment.
+// Externalizes `node:*` (so `node:http` is never bundled) AND declared
+// `@orkestrel/*` deps AND `@src/core` → the sibling `dist/src/core` build
 // (format-aware: `../core/index.js` for the ESM output, `../core/index.cjs`
 // for the CJS output), exactly as core ships dual-format. Build-only — the
 // test project resolves `@src/core` from source through the shared `resolve` alias.
@@ -150,9 +153,10 @@ export const srcServer = (config?: UserConfig): UserConfig =>
 						fileName: (format: string) => (format === 'es' ? 'index.js' : 'index.cjs'),
 					},
 					outDir: 'dist/src/server',
-					target: 'node22',
+					target: 'node24',
 					rolldownOptions: {
-						external: (id: string) => id === '@src/core' || id.startsWith('node:'),
+						external: (id: string) =>
+							id === '@src/core' || id.startsWith('node:') || id.startsWith('@orkestrel/'),
 						output: [
 							{
 								format: 'es',
