@@ -1,4 +1,4 @@
-import type { CompiledPath, Method } from './types.js'
+import type { CompiledPath, Method, RouteInput } from './types.js'
 import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 
 // The PURE path-matching primitives (AGENTS §4.3 multi-word names — module scope,
@@ -386,4 +386,47 @@ export function joinPaths(prefix: string, path: string): string {
 	const left = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
 	const right = path.startsWith('/') ? path : `/${path}`
 	return `${left}${right}`
+}
+
+/**
+ * Identity pass-through for a {@link RouteInput} that pins its `Path` generic
+ * to the LITERAL registration-site string, so `context.params` types
+ * correctly through {@link PathParams} without an explicit type argument.
+ *
+ * @remarks
+ * A bare object literal handed straight to {@link import('./types.js').DispatcherInterface}'s
+ * `add` already infers `Path` as a literal at that call site — but the moment
+ * the object is built through an intermediate binding (a local `const route =
+ * { method, path, handler }`) TypeScript widens `path` to `string` unless the
+ * binding's own type is pinned. Wrapping the literal in `route(...)` supplies
+ * that pin: its `const Path extends string` type parameter infers the NARROW
+ * literal from the call, and the function returns its input completely
+ * unchanged (same reference, no cloning, no validation) — this is a
+ * compile-time typing aid only, not a construction step (contrast
+ * {@link import('./factories.js')} `create*` entity factories). A
+ * heterogeneous `RouteInput[]` built from several `route(...)` calls still
+ * widens each element's `Path` to `string` once collected into one array
+ * (§14) — the realistic ceiling this helper raises is PER-CALL typing at the
+ * registration site, not a stored, still-literal-typed record.
+ *
+ * @typeParam Path - The route path pattern literal (drives `context.params`
+ *   via {@link PathParams})
+ * @typeParam TState - The consumer's opaque per-request state type
+ * @param input - The {@link RouteInput} to pass through unchanged
+ * @returns `input`, unchanged (same reference)
+ *
+ * @example
+ * ```ts
+ * const input = route({
+ * 	method: 'GET',
+ * 	path: '/users/:id',
+ * 	handler: (_request, context) => new Response(context.params.id), // typed string
+ * })
+ * dispatcher.add(input)
+ * ```
+ */
+export function route<const Path extends string, TState = undefined>(
+	input: RouteInput<Path, TState>,
+): RouteInput<Path, TState> {
+	return input
 }

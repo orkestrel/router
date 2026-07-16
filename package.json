@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/router",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"description": "A typed request router for the @orkestrel line — server and browser environments. Part of the @orkestrel line.",
 	"keywords": [
 		"browser",

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
+import type { RouteContext } from '../../../src/core/types.js'
 import {
 	canonicalizePath,
 	classifySegment,
@@ -10,6 +11,7 @@ import {
 	matchPath,
 	parseMethod,
 	computeSpecificity,
+	route,
 } from '../../../src/core/helpers.js'
 
 // §16 mirror of `src/core/helpers.ts` — pins every pure path-matching primitive:
@@ -297,5 +299,30 @@ describe('joinPaths', () => {
 
 	it('returns the prefix unchanged when the path is empty', () => {
 		expect(joinPaths('/api', '')).toBe('/api')
+	})
+})
+
+describe('route', () => {
+	it('returns its input unchanged (same reference)', () => {
+		const input = route({
+			method: 'GET',
+			path: '/users/:id',
+			handler: (_request: Request, context: RouteContext<'/users/:id'>) =>
+				new Response(context.params.id),
+		})
+		expect(route(input)).toBe(input)
+	})
+
+	it('preserves the literal Path so context.params types correctly at the registration site', () => {
+		const input = route({
+			method: 'GET',
+			path: '/users/:id',
+			handler: (_request, context) => {
+				expectTypeOf(context.params).toEqualTypeOf<{ readonly id: string }>()
+				const id: string = context.params.id
+				return new Response(id)
+			},
+		})
+		expectTypeOf(input.path).toEqualTypeOf<'/users/:id'>()
 	})
 })
