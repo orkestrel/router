@@ -9,23 +9,6 @@ export function resolveWorkspacePath(relativePath: string): string {
 	return fileURLToPath(new URL(relativePath, import.meta.url))
 }
 
-/**
- * Resolve the Playwright browser provider, by precedence — one self-contained
- * function covering every environment (Windows, macOS, Linux, Claude Code Cloud):
- *
- *   1. `PLAYWRIGHT_EXECUTABLE_PATH` — an explicit browser binary (CI / pinned).
- *   2. `PLAYWRIGHT_WS_ENDPOINT`     — a CDP / WebSocket endpoint of an already-
- *      running browser (remote debugging, a browser-tools MCP, etc.).
- *   3. `PLAYWRIGHT_CHANNEL`         — an explicit channel (`chrome`, `msedge`,
- *      `chromium`, …) for local dev loops.
- *   4. Claude Code / Claude Cloud  — the bundled chromium under
- *      `/opt/pw-browsers/`. The revision dir AND its inner layout drift across
- *      Playwright builds, plus a top-level `chromium` symlink points at the
- *      installed binary — so glob every known shape and take the highest match.
- *   5. Platform default — Windows → `msedge` (ships with the OS, never collides
- *      with a foreground Chrome); macOS / Linux → `chrome`. Override with
- *      `PLAYWRIGHT_CHANNEL` when the default isn't installed.
- */
 export function createBrowserProvider() {
 	const { PLAYWRIGHT_EXECUTABLE_PATH, PLAYWRIGHT_WS_ENDPOINT, PLAYWRIGHT_CHANNEL } = process.env
 	if (PLAYWRIGHT_EXECUTABLE_PATH)
@@ -54,7 +37,6 @@ const resolve = {
 	),
 }
 
-// Base: shared resolve + build defaults + src:core tests.
 export const srcCore = (config?: UserConfig): UserConfig =>
 	mergeConfig(
 		{
@@ -75,8 +57,6 @@ export const srcCore = (config?: UserConfig): UserConfig =>
 		config ?? {},
 	)
 
-// Extends srcCore: the guides-parity suite. Node env — it reads the real
-// guides/*.md and the documented source modules off disk — but resolves like core tests.
 export const guides = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
@@ -91,11 +71,6 @@ export const guides = (config?: UserConfig): UserConfig =>
 		),
 	)
 
-// Extends srcCore: browser-only library (`src/browser`, the headless
-// History/hash `Navigator` entity that composes one core `Router`). Builds an
-// ES lib and runs its tests in a real Chromium via Playwright, where DOM and
-// `history`/`location` are available. No Vue — this surface is plain
-// TypeScript; add the plugin here if a browser app surface ever needs it.
 export const srcBrowser = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
@@ -107,11 +82,6 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 						fileName: () => 'index.js',
 					},
 					outDir: 'dist/src/browser',
-					// The browser lib and the core lib ship as two subpaths of one package,
-					// so the published build references the sibling `dist/src/core` (ESM)
-					// instead of inlining a copy. Build-only — the test project below
-					// resolves `@src/core` from source through the shared `resolve` alias.
-					// Declared `@orkestrel/*` deps are externalized too, never bundled.
 					rolldownOptions: {
 						external: (id: string) => id === '@src/core' || id.startsWith('@orkestrel/'),
 						output: { paths: { '@src/core': '../core/index.js' } },
@@ -134,14 +104,6 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 		),
 	)
 
-// Extends srcCore: server-only library (`src/server`, the `node:http` ↔ fetch
-// glue that adapts a core `Dispatcher` into a request listener). Builds a
-// dual ESM+CJS lib for Node and runs its tests in the node environment.
-// Externalizes `node:*` (so `node:http` is never bundled) AND declared
-// `@orkestrel/*` deps AND `@src/core` → the sibling `dist/src/core` build
-// (format-aware: `../core/index.js` for the ESM output, `../core/index.cjs`
-// for the CJS output), exactly as core ships dual-format. Build-only — the
-// test project resolves `@src/core` from source through the shared `resolve` alias.
 export const srcServer = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
