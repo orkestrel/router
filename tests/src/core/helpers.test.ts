@@ -5,6 +5,7 @@ import {
 	classifySegment,
 	compareSpecificity,
 	compilePath,
+	computeDispatchKey,
 	decodeParam,
 	escapeRegExp,
 	joinPaths,
@@ -47,6 +48,16 @@ describe('canonicalizePath', () => {
 
 	it("exempts the empty pattern `''`", () => {
 		expect(canonicalizePath('')).toBe('')
+	})
+})
+
+describe('computeDispatchKey', () => {
+	it('combines the method with a canonical route path', () => {
+		expect(computeDispatchKey({ path: '/users/', meta: { method: 'GET' } })).toBe('GET /users')
+	})
+
+	it('keeps registrations for distinct methods separate', () => {
+		expect(computeDispatchKey({ path: '/users', meta: { method: 'POST' } })).toBe('POST /users')
 	})
 })
 

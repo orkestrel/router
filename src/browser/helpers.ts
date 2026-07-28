@@ -4,6 +4,29 @@
 // — DOM-typed only (`Location`, `Event`, `HTMLAnchorElement`), valid under the
 // `src:browser` scoped check (AGENTS §17.7).
 
+import type { RouteEntry } from '@src/core'
+import { canonicalizePath } from '@src/core'
+
+/**
+ * Compute the registry key for a browser navigation route.
+ *
+ * @remarks
+ * Projects the nested route's path through the core engine's canonical
+ * trailing-slash identity, so `/users` and `/users/` replace one another in
+ * the Navigator's shared Router.
+ *
+ * @param entry - The outer Router entry carrying the Navigator route
+ * @returns The nested route's canonical path
+ *
+ * @example
+ * ```ts
+ * computeNavigationKey({ path: '/users/', meta: { path: '/users/' } }) // '/users'
+ * ```
+ */
+export function computeNavigationKey(entry: RouteEntry<{ readonly path: string }>): string {
+	return canonicalizePath(entry.meta.path)
+}
+
 /**
  * Extract the `/`-prefixed pathname from a `location.hash` value — strip the
  * leading `#` (keeping the route's own leading `/`) and any `?query` suffix.

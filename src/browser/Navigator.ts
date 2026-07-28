@@ -5,8 +5,8 @@ import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
 import { createAbort } from '@orkestrel/abort'
 import { Emitter } from '@orkestrel/emitter'
 import { isFunction, isString } from '@orkestrel/contract'
-import { canonicalizePath, createRouter, joinPaths } from '@src/core'
-import { findAnchor, resolveLocationPath } from './helpers.js'
+import { createRouter, joinPaths } from '@src/core'
+import { computeNavigationKey, findAnchor, resolveLocationPath } from './helpers.js'
 
 /**
  * The headless History/hash navigation entity — composes one core
@@ -98,12 +98,12 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 				...(route.name === undefined ? {} : { name: route.name }),
 			})),
 			...(options.sensitive === undefined ? {} : { sensitive: options.sensitive }),
-			key: (entry) => canonicalizePath(entry.meta.path),
+			key: computeNavigationKey,
 		})
 		this.#fallback = options.fallback ?? options.routes[0]?.path
-		this.#hashListener = () => this.#resolve()
-		this.#popListener = () => this.#resolve()
-		this.#clickListener = (event) => this.#intercepted(event)
+		this.#hashListener = this.#resolve.bind(this)
+		this.#popListener = this.#resolve.bind(this)
+		this.#clickListener = this.#intercepted.bind(this)
 	}
 
 	get router(): RouterInterface<RouteEntry<Meta>> {

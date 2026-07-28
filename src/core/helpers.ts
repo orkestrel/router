@@ -1,4 +1,4 @@
-import type { CompiledPath, Method, RouteInput } from './types.js'
+import type { CompiledPath, Method, RouteEntry, RouteInput } from './types.js'
 import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 
 // The PURE path-matching primitives (AGENTS §4.3 multi-word names — module scope,
@@ -59,6 +59,26 @@ export function escapeRegExp(value: string): string {
  */
 export function canonicalizePath(path: string): string {
 	return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+}
+
+/**
+ * Compute the registry key for a method-dimensioned dispatcher route.
+ *
+ * @remarks
+ * Combines the route record's HTTP method with the outer entry's canonical
+ * path, so registrations that differ only by one trailing slash replace each
+ * other while registrations for different methods remain distinct.
+ *
+ * @param entry - The dispatcher route entry to identify
+ * @returns The canonical `METHOD /path` registry key
+ *
+ * @example
+ * ```ts
+ * computeDispatchKey({ path: '/health/', meta: { method: 'GET' } }) // 'GET /health'
+ * ```
+ */
+export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }>): string {
+	return `${entry.meta.method} ${canonicalizePath(entry.path)}`
 }
 
 /**

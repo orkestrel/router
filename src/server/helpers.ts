@@ -167,6 +167,50 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 }
 
 /**
+ * Handle one `node:http` request through a core dispatcher and write its
+ * fetch-standard response.
+ *
+ * @remarks
+ * This is the named asynchronous orchestration behind {@link createListener}.
+ * A rejected dispatch is treated only as a transport-level last resort: write
+ * a bare `500` before headers, or destroy a response whose headers have
+ * already started.
+ *
+ * @typeParam TState - The consumer's opaque per-request state type
+ * @param dispatcher - The core dispatcher to run
+ * @param state - Derives the consumer state from the incoming message
+ * @param request - The raw `node:http` request
+ * @param response - The raw `node:http` response
+ * @returns A promise that settles after the response is written or closed
+ *
+ * @example
+ * ```ts
+ * const server = http.createServer((request, response) => {
+ * 	void handleListenerRequest(dispatcher, () => undefined, request, response)
+ * })
+ * ```
+ */
+export async function handleListenerRequest<TState>(
+	dispatcher: DispatcherInterface<TState>,
+	state: StateFunction<TState>,
+	request: IncomingMessage,
+	response: ServerResponse,
+): Promise<void> {
+	try {
+		const converted = buildRequest(request)
+		const result = await dispatcher.handle(converted, state(request))
+		await sendResponse(result, response)
+	} catch (error) {
+		if (!response.headersSent && !response.destroyed) {
+			response.writeHead(500)
+			response.end()
+		} else if (!response.destroyed) {
+			response.destroy(error instanceof Error ? error : new Error(String(error)))
+		}
+	}
+}
+
+/**
  * Create a `node:http` request listener over a core {@link DispatcherInterface} —
  * the whole server face's entry point (§5.3): convert the incoming message to
  * a fetch `Request`, hand it to the dispatcher with the consumer's per-request
@@ -204,19 +248,6 @@ export function createListener<TState>(
 	state: StateFunction<TState>,
 ): ListenerFunction {
 	return (request, response) => {
-		void (async () => {
-			try {
-				const converted = buildRequest(request)
-				const result = await dispatcher.handle(converted, state(request))
-				await sendResponse(result, response)
-			} catch (error) {
-				if (!response.headersSent && !response.destroyed) {
-					response.writeHead(500)
-					response.end()
-				} else if (!response.destroyed) {
-					response.destroy(error instanceof Error ? error : new Error(String(error)))
-				}
-			}
-		})()
+		void handleListenerRequest(dispatcher, state, request, response)
 	}
 }

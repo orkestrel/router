@@ -16,7 +16,7 @@ import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
 import { isFunction, isString } from '@orkestrel/contract'
 import { METHODS } from './constants.js'
-import { canonicalizePath, parseMethod } from './helpers.js'
+import { computeDispatchKey, parseMethod } from './helpers.js'
 import { Router } from './Router.js'
 import { DispatchGroup } from './DispatchGroup.js'
 
@@ -60,8 +60,8 @@ import { DispatchGroup } from './DispatchGroup.js'
 export class Dispatcher<TState = undefined> implements DispatcherInterface<TState> {
 	readonly router: RouterInterface<RouteRecord<TState>>
 	readonly #emitter: Emitter<DispatcherEventMap>
-	readonly #unmatched: (request: Request) => Response | Promise<Response>
-	readonly #unmethoded: (request: Request, allow: readonly Method[]) => Response | Promise<Response>
+	readonly #unmatched: DispatcherOptions<TState>['unmatched']
+	readonly #unmethoded: DispatcherOptions<TState>['unmethoded']
 
 	constructor(options?: DispatcherOptions<TState>) {
 		const sensitive = options?.sensitive
@@ -69,21 +69,14 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		const error = options?.error
 		this.router = new Router<RouteRecord<TState>>({
 			...(sensitive === undefined ? {} : { sensitive }),
-			key: (entry) => `${entry.meta.method} ${canonicalizePath(entry.path)}`,
+			key: computeDispatchKey,
 		})
 		this.#emitter = new Emitter<DispatcherEventMap>({
 			...(on === undefined ? {} : { on }),
 			...(error === undefined ? {} : { error }),
 		})
-		this.#unmatched =
-			options?.unmatched ?? ((_request) => new Response('Not Found', { status: 404 }))
-		this.#unmethoded =
-			options?.unmethoded ??
-			((_request, allow) =>
-				new Response('Method Not Allowed', {
-					status: 405,
-					headers: { Allow: allow.join(', ') },
-				}))
+		this.#unmatched = options?.unmatched
+		this.#unmethoded = options?.unmethoded
 		if (options?.routes !== undefined) this.add(options.routes)
 	}
 
@@ -123,10 +116,10 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 			const allow = this.#allow(pathname)
 			if (allow.length === 0) {
 				this.#emitter.emit('miss', requested, pathname, 'unmatched')
-				return this.#unmatched(request)
+				return this.#respondUnmatched(request)
 			}
 			this.#emitter.emit('miss', requested, pathname, 'unmethoded')
-			return this.#unmethoded(request, allow)
+			return this.#respondUnmethoded(request, allow)
 		}
 		const result = this.match(method, pathname)
 		if (result.status === 'matched')
@@ -134,10 +127,10 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		if (result.status === 'unmethoded') {
 			if (method === 'OPTIONS') return this.#respondAutoOptions(pathname, result.allow)
 			this.#emitter.emit('miss', method, pathname, 'unmethoded')
-			return this.#unmethoded(request, result.allow)
+			return this.#respondUnmethoded(request, result.allow)
 		}
 		this.#emitter.emit('miss', method, pathname, 'unmatched')
-		return this.#unmatched(request)
+		return this.#respondUnmatched(request)
 	}
 
 	destroy(): void {
@@ -175,6 +168,21 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		for (const entry of entries) methods.add(entry.meta.method)
 		if (methods.has('GET')) methods.add('HEAD')
 		return [...methods]
+	}
+
+	#respondUnmatched(request: Request): Response | Promise<Response> {
+		const responder = this.#unmatched
+		if (responder !== undefined) return responder(request)
+		return new Response('Not Found', { status: 404 })
+	}
+
+	#respondUnmethoded(request: Request, allow: readonly Method[]): Response | Promise<Response> {
+		const responder = this.#unmethoded
+		if (responder !== undefined) return responder(request, allow)
+		return new Response('Method Not Allowed', {
+			status: 405,
+			headers: { Allow: allow.join(', ') },
+		})
 	}
 
 	// A matched dispatch — either the winning handler runs directly, or (for a derived `HEAD`

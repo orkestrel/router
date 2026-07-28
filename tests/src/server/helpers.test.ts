@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createDispatcher } from '../../../src/core/index.js'
 import {
 	createListener,
+	handleListenerRequest,
 	isEncryptedSocket,
 	buildRequest,
 	sendResponse,
@@ -304,6 +305,22 @@ describe('sendResponse', () => {
 
 		expect(response.status).toBe(204)
 		expect(await response.text()).toBe('')
+	})
+})
+
+describe('handleListenerRequest', () => {
+	it('converts, dispatches, and writes one request through the transport boundary', async () => {
+		const dispatcher = createDispatcher<undefined>({
+			routes: [{ method: 'GET', path: '/health', handler: () => new Response('ok') }],
+		})
+		const server = await startServer((request, response) => {
+			void handleListenerRequest(dispatcher, () => undefined, request, response)
+		})
+		const response = await fetch(`${server.url}/health`)
+		await server.close()
+
+		expect(response.status).toBe(200)
+		expect(await response.text()).toBe('ok')
 	})
 })
 

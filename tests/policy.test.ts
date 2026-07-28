@@ -4,7 +4,6 @@ import { isBrowserVuePath } from './setup.js'
 import { inspectCodingWorkspace } from './setupPolicy.js'
 import { chromium } from 'playwright'
 
-
 describe('repository coding law', () => {
 	it('keeps Vue single-file components exclusively in browser environments', () => {
 		const files = globSync('{app,src}/**/*.vue')
