@@ -81,7 +81,7 @@ export class Router<Meta> implements RouterInterface<Meta> {
 			path: best.entry.path,
 			params: best.params,
 			meta: best.entry.meta,
-			name: best.entry.name,
+			...(best.entry.name === undefined ? {} : { name: best.entry.name }),
 		}
 	}
 

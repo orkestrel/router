@@ -87,10 +87,17 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 		this.#intercept = options.intercept ?? false
 		this.#guard = options.guard
 		this.#error = options.error
-		this.#emitter = new Emitter<NavigatorEventMap<Meta>>({ on: options.on, error: options.error })
+		this.#emitter = new Emitter<NavigatorEventMap<Meta>>({
+			...(options.on === undefined ? {} : { on: options.on }),
+			...(options.error === undefined ? {} : { error: options.error }),
+		})
 		this.#router = createRouter<RouteEntry<Meta>>({
-			entries: options.routes.map((route) => ({ path: route.path, meta: route, name: route.name })),
-			sensitive: options.sensitive,
+			entries: options.routes.map((route) => ({
+				path: route.path,
+				meta: route,
+				...(route.name === undefined ? {} : { name: route.name }),
+			})),
+			...(options.sensitive === undefined ? {} : { sensitive: options.sensitive }),
 			key: (entry) => canonicalizePath(entry.meta.path),
 		})
 		this.#fallback = options.fallback ?? options.routes[0]?.path
@@ -150,7 +157,12 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	match(path: string): RouterMatch<Meta> | undefined {
 		const hit = this.#router.match(path)
 		if (hit === undefined) return undefined
-		return { path: hit.path, params: hit.params, meta: hit.meta.meta, name: hit.meta.name }
+		return {
+			path: hit.path,
+			params: hit.params,
+			meta: hit.meta.meta,
+			...(hit.meta.name === undefined ? {} : { name: hit.meta.name }),
+		}
 	}
 
 	destroy(): void {

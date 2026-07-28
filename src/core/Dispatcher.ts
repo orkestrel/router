@@ -64,11 +64,17 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	readonly #unmethoded: (request: Request, allow: readonly Method[]) => Response | Promise<Response>
 
 	constructor(options?: DispatcherOptions<TState>) {
+		const sensitive = options?.sensitive
+		const on = options?.on
+		const error = options?.error
 		this.router = new Router<RouteRecord<TState>>({
-			sensitive: options?.sensitive,
+			...(sensitive === undefined ? {} : { sensitive }),
 			key: (entry) => `${entry.meta.method} ${canonicalizePath(entry.path)}`,
 		})
-		this.#emitter = new Emitter<DispatcherEventMap>({ on: options?.on, error: options?.error })
+		this.#emitter = new Emitter<DispatcherEventMap>({
+			...(on === undefined ? {} : { on }),
+			...(error === undefined ? {} : { error }),
+		})
 		this.#unmatched =
 			options?.unmatched ?? ((_request) => new Response('Not Found', { status: 404 }))
 		this.#unmethoded =
@@ -149,10 +155,15 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 			throw new TypeError(
 				`a route method must be one of ${[...METHODS].join(', ')}, got ${JSON.stringify(input.method)}`,
 			)
+		const name = input.name
 		this.router.add({
 			path: input.path,
-			name: input.name,
-			meta: { method: input.method, handler: input.handler, name: input.name },
+			...(name === undefined ? {} : { name }),
+			meta: {
+				method: input.method,
+				handler: input.handler,
+				...(name === undefined ? {} : { name }),
+			},
 		})
 	}
 

@@ -43,7 +43,9 @@ describe('buildRequest', () => {
 		await server.close()
 
 		expect(captured.count).toBe(1)
-		const [request] = captured.calls[0]
+		const call = captured.calls[0]
+		if (call === undefined) throw new Error('expected one captured request')
+		const [request] = call
 		expect(request.method).toBe('GET')
 		const url = new URL(request.url)
 		expect(url.pathname).toBe('/users/7')
@@ -60,7 +62,8 @@ describe('buildRequest', () => {
 		await fetch(server.url)
 		await server.close()
 
-		const [request] = captured.calls[0]
+		const request = captured.calls[0]?.[0]
+		if (request === undefined) throw new Error('expected one captured request')
 		expect(request.body).toBeNull()
 	})
 
@@ -96,7 +99,8 @@ describe('buildRequest', () => {
 		})
 		await server.close()
 
-		const [request] = captured.calls[0]
+		const request = captured.calls[0]?.[0]
+		if (request === undefined) throw new Error('expected one captured request')
 		expect(new URL(request.url).host).toBe('localhost')
 	})
 
@@ -109,7 +113,8 @@ describe('buildRequest', () => {
 		await fetch(`${server.url}/health`)
 		await server.close()
 
-		const [request] = captured.calls[0]
+		const request = captured.calls[0]?.[0]
+		if (request === undefined) throw new Error('expected one captured request')
 		expect(new URL(request.url).origin).toBe('https://api.example.com')
 		expect(new URL(request.url).pathname).toBe('/health')
 	})
@@ -133,7 +138,8 @@ describe('buildRequest', () => {
 		})
 		await server.close()
 
-		const [request] = captured.calls[0]
+		const request = captured.calls[0]?.[0]
+		if (request === undefined) throw new Error('expected one captured request')
 		expect(request.headers.getSetCookie()).toEqual(['a=1', 'b=2'])
 	})
 
