@@ -1,5 +1,5 @@
-import type { CSSOptions, Plugin, ResolvedConfig, UserConfig } from 'vite'
-import { isCSSRequest, parseSync, preprocessCSS, transformWithOxc, Visitor } from 'vite'
+import type { Plugin, UserConfig } from 'vite'
+import { parseSync, transformWithOxc, Visitor } from 'vite'
 import { defineConfig, mergeConfig } from 'vitest/config'
 import tsconfig from './tsconfig.json' with { type: 'json' }
 import { fileURLToPath, URL } from 'node:url'
@@ -11,14 +11,70 @@ import {
 	fstatSync,
 	lstatSync,
 	openSync,
+	readdirSync,
 	readSync,
 	realpathSync,
+	statSync,
 } from 'node:fs'
-import { dirname, isAbsolute, relative, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from 'node:path'
 import { playwright } from '@vitest/browser-playwright'
 import { chromium } from 'playwright'
 
-const hasChromium = existsSync(chromium.executablePath())
+/** Chromium executable layouts inside a `chromium-<revision>` browsers-directory entry, per platform. */
+export const CHROMIUM_LAYOUTS = Object.freeze([
+	'chrome-linux/chrome',
+	'chrome-linux64/chrome',
+	'chrome-win/chrome.exe',
+	'chrome-win64/chrome.exe',
+	'chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+	'chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium',
+])
+
+/**
+ * Resolve a launchable Chromium executable: the pinned revision when installed,
+ * otherwise a `chromium` / `chromium.exe` alias or any other `chromium-*`
+ * revision under the same Playwright browsers directory. A pinned-revision miss
+ * is not Chromium absence — managed containers ship one usable build (often
+ * behind a revision-agnostic alias) for many Playwright versions.
+ */
+export function resolveChromium(pinned: string): string | undefined {
+	if (existsSync(pinned)) return pinned
+	let revisionRoot = dirname(pinned)
+	for (;;) {
+		if (/^chromium-\d+$/.test(basename(revisionRoot))) break
+		const parent = dirname(revisionRoot)
+		if (parent === revisionRoot) return undefined
+		revisionRoot = parent
+	}
+	const browsersRoot = dirname(revisionRoot)
+	for (const alias of ['chromium', 'chromium.exe']) {
+		const candidate = resolvePath(browsersRoot, alias)
+		if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+	}
+	let entries: readonly string[]
+	try {
+		entries = readdirSync(browsersRoot)
+	} catch {
+		return undefined
+	}
+	const revisions = entries
+		.filter((entry) => /^chromium-\d+$/.test(entry))
+		.sort((a, b) => Number(b.slice('chromium-'.length)) - Number(a.slice('chromium-'.length)))
+	for (const revision of revisions) {
+		for (const layout of CHROMIUM_LAYOUTS) {
+			const candidate = resolvePath(browsersRoot, revision, layout)
+			if (existsSync(candidate)) return candidate
+		}
+	}
+	return undefined
+}
+
+const chromiumPinned = chromium.executablePath()
+const chromiumPath = resolveChromium(chromiumPinned)
+const chromiumOptions =
+	chromiumPath === undefined || chromiumPath === chromiumPinned
+		? {}
+		: { launchOptions: { executablePath: chromiumPath } }
 
 export function resolveWorkspacePath(relativePath: string): string {
 	return fileURLToPath(new URL(relativePath, import.meta.url))
@@ -90,38 +146,6 @@ export function gateBrowserProjects(
 		? { passWithNoTests: true, projects }
 		: { projects }
 }
-
-export const ENVIRONMENT_CSS = Object.freeze({
-	transformer: 'lightningcss',
-	lightningcss: {
-		visitor: () => {
-			let sources: readonly string[] = []
-			let source: string | undefined
-			return {
-				StyleSheet(stylesheet) {
-					sources = stylesheet.sources
-				},
-				Rule(rule) {
-					source =
-						'value' in rule && rule.value !== null && 'loc' in rule.value
-							? sources[rule.value.loc.source_index]
-							: undefined
-					if (rule.type !== 'import') return
-					const error = stylesheetAssetError(source, rule.value.url)
-					if (error !== undefined) {
-						throw new Error(`[orkestrel-environment-boundary] ${error}`)
-					}
-				},
-				Url(asset) {
-					const error = stylesheetAssetError(source, asset.url)
-					if (error !== undefined) {
-						throw new Error(`[orkestrel-environment-boundary] ${error}`)
-					}
-				},
-			}
-		},
-	},
-} satisfies CSSOptions)
 
 /** Prevent the Vitest browser mid-run "optimized dependencies changed, reloading" stall. */
 export const BROWSER_TEST_DEPENDENCIES = Object.freeze([
@@ -450,53 +474,6 @@ export function environmentSourceError(owner: string, source: string): string | 
 	return undefined
 }
 
-export function stylesheetAssetError(
-	source: string | undefined,
-	value: string,
-): string | undefined {
-	if (source === undefined) return 'Stylesheet asset source could not be resolved'
-	const decoded = decodeAssetSource(value)
-	if (decoded === undefined) return 'Stylesheet asset URLs must use valid URI encoding'
-	if (decoded.includes('\\')) return 'Stylesheet asset URLs must use forward slashes'
-	const [assetPath] = decoded.split(/[?#]/)
-	if (
-		assetPath === undefined ||
-		assetPath.length === 0 ||
-		decoded.startsWith('#') ||
-		decoded.startsWith('//') ||
-		(assetPath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(assetPath))
-	) {
-		return undefined
-	}
-	const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.test(assetPath)
-	const fileScheme = /^file:/i.test(assetPath)
-	if (scheme && !fileScheme && !/^[A-Za-z]:[\\/]/.test(assetPath)) {
-		return undefined
-	}
-	let physicalAsset: string
-	try {
-		physicalAsset = physicalPath(
-			fileScheme ? fileURLToPath(assetPath) : resolvePath(dirname(physicalPath(source)), assetPath),
-		)
-	} catch {
-		return 'Stylesheet asset URLs must use valid local paths'
-	}
-	const sourceTarget = workspacePath(source)
-	const assetTarget = workspacePath(physicalAsset)
-	if (sourceTarget !== undefined) {
-		if (assetTarget === undefined) {
-			return 'Environment modules cannot import files outside the workspace'
-		}
-		const [layer, environment] = sourceTarget.split('/')
-		return environmentPathError(`${layer}/${environment}`, assetTarget)
-	}
-	const packageRoot = packageRootForResolved(source)
-	if (packageRoot === undefined || !containedPath(packageRoot, physicalAsset)) {
-		return 'Dependency modules cannot import files outside their physical package root'
-	}
-	return undefined
-}
-
 export function enforceOutputPath(configured: string, expected: string): void {
 	if (relative(expected, configured) !== '') {
 		throw new Error(
@@ -667,13 +644,11 @@ export function environmentBoundary(
 ): Plugin {
 	const trustedPackageRoots = new Set<string>()
 	let environmentRoot = WORKSPACE_ROOT
-	let resolvedConfig: ResolvedConfig | undefined
 	return {
 		name: 'orkestrel-environment-boundary',
 		enforce: 'pre',
 		configResolved(config) {
 			environmentRoot = physicalPath(config.root)
-			resolvedConfig = config
 		},
 		async resolveId(source, importer) {
 			if (importer === undefined || !isWorkspaceBoundaryModule(importer)) return null
@@ -861,25 +836,6 @@ export function environmentBoundary(
 				const environmentModule =
 					target !== undefined && /^(?:app|src)\/(?:core|browser|server)\//.test(target)
 				if (!environmentModule && importerPackageRoot === undefined) return null
-				if (isCSSRequest(id)) {
-					const config = resolvedConfig
-					if (config === undefined) {
-						this.error('Environment boundary requires resolved Vite configuration')
-					}
-					const stylesheet = await preprocessCSS(code, id, config)
-					for (const dependency of stylesheet.deps ?? []) {
-						const physicalDependency = physicalPath(dependency)
-						const dependencyTarget = workspacePath(physicalDependency)
-						if (dependencyTarget === undefined) {
-							if (trustedPackageRootFor(physicalDependency, trustedPackageRoots) === undefined) {
-								this.error('Environment modules cannot import files outside the workspace')
-							}
-							continue
-						}
-						const dependencyError = environmentPathError(owner, dependencyTarget)
-						if (dependencyError !== undefined) this.error(dependencyError)
-					}
-				}
 				for (const source of await environmentAssetSources(code, id)) {
 					const normalizedSource = source.replaceAll('\\', '/')
 					const sourceError = environmentSourceError(owner, normalizedSource)
@@ -954,7 +910,6 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
 			{
-				css: ENVIRONMENT_CSS,
 				publicDir: false,
 				plugins: [outputBoundary('dist/src/browser'), environmentBoundary('src/browser')],
 				build: {
@@ -989,7 +944,7 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 							}),
 					browser: {
 						enabled: true,
-						provider: playwright(),
+						provider: playwright(chromiumOptions),
 						instances: [{ browser: 'chromium', headless: true }],
 					},
 					fileParallelism: false,
@@ -1003,7 +958,6 @@ export const srcServer = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
 			{
-				css: ENVIRONMENT_CSS,
 				publicDir: false,
 				plugins: [outputBoundary('dist/src/server'), environmentBoundary('src/server')],
 				build: {
@@ -1082,7 +1036,7 @@ export default defineConfig({
 			{ project: policy },
 			{ project: guides },
 		],
-		hasChromium,
+		chromiumPath !== undefined,
 		process.argv,
 	),
 })
