@@ -1,5 +1,5 @@
-import type { Plugin, UserConfig } from 'vite'
-import { parseSync, transformWithOxc, Visitor } from 'vite'
+import type { CSSOptions, Plugin, ResolvedConfig, UserConfig } from 'vite'
+import { isCSSRequest, parseSync, preprocessCSS, transformWithOxc, Visitor } from 'vite'
 import { defineConfig, mergeConfig } from 'vitest/config'
 import tsconfig from './tsconfig.json' with { type: 'json' }
 import { fileURLToPath, URL } from 'node:url'
@@ -146,6 +146,38 @@ export function gateBrowserProjects(
 		? { passWithNoTests: true, projects }
 		: { projects }
 }
+
+export const ENVIRONMENT_CSS = Object.freeze({
+	transformer: 'lightningcss',
+	lightningcss: {
+		visitor: () => {
+			let sources: readonly string[] = []
+			let source: string | undefined
+			return {
+				StyleSheet(stylesheet) {
+					sources = stylesheet.sources
+				},
+				Rule(rule) {
+					source =
+						'value' in rule && rule.value !== null && 'loc' in rule.value
+							? sources[rule.value.loc.source_index]
+							: undefined
+					if (rule.type !== 'import' || rule.value === null) return
+					const error = stylesheetAssetError(source, rule.value.url)
+					if (error !== undefined) {
+						throw new Error(`[orkestrel-environment-boundary] ${error}`)
+					}
+				},
+				Url(asset) {
+					const error = stylesheetAssetError(source, asset.url)
+					if (error !== undefined) {
+						throw new Error(`[orkestrel-environment-boundary] ${error}`)
+					}
+				},
+			}
+		},
+	},
+} satisfies CSSOptions)
 
 /** Prevent the Vitest browser mid-run "optimized dependencies changed, reloading" stall. */
 export const BROWSER_TEST_DEPENDENCIES = Object.freeze([
@@ -474,6 +506,53 @@ export function environmentSourceError(owner: string, source: string): string | 
 	return undefined
 }
 
+export function stylesheetAssetError(
+	source: string | undefined,
+	value: string,
+): string | undefined {
+	if (source === undefined) return 'Stylesheet asset source could not be resolved'
+	const decoded = decodeAssetSource(value)
+	if (decoded === undefined) return 'Stylesheet asset URLs must use valid URI encoding'
+	if (decoded.includes('\\')) return 'Stylesheet asset URLs must use forward slashes'
+	const [assetPath] = decoded.split(/[?#]/)
+	if (
+		assetPath === undefined ||
+		assetPath.length === 0 ||
+		decoded.startsWith('#') ||
+		decoded.startsWith('//') ||
+		(assetPath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(assetPath))
+	) {
+		return undefined
+	}
+	const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.test(assetPath)
+	const fileScheme = /^file:/i.test(assetPath)
+	if (scheme && !fileScheme && !/^[A-Za-z]:[\\/]/.test(assetPath)) {
+		return undefined
+	}
+	let physicalAsset: string
+	try {
+		physicalAsset = physicalPath(
+			fileScheme ? fileURLToPath(assetPath) : resolvePath(dirname(physicalPath(source)), assetPath),
+		)
+	} catch {
+		return 'Stylesheet asset URLs must use valid local paths'
+	}
+	const sourceTarget = workspacePath(source)
+	const assetTarget = workspacePath(physicalAsset)
+	if (sourceTarget !== undefined) {
+		if (assetTarget === undefined) {
+			return 'Environment modules cannot import files outside the workspace'
+		}
+		const [layer, environment] = sourceTarget.split('/')
+		return environmentPathError(`${layer}/${environment}`, assetTarget)
+	}
+	const packageRoot = packageRootForResolved(source)
+	if (packageRoot === undefined || !containedPath(packageRoot, physicalAsset)) {
+		return 'Dependency modules cannot import files outside their physical package root'
+	}
+	return undefined
+}
+
 export function enforceOutputPath(configured: string, expected: string): void {
 	if (relative(expected, configured) !== '') {
 		throw new Error(
@@ -518,7 +597,11 @@ export function outputBoundary(output: string): Plugin {
 					'[orkestrel-output-boundary] Public directories are disabled; every output must come from the audited graph',
 				)
 			}
-			if (output.endsWith('/browser') && config.build.assetsInlineLimit !== 0) {
+			if (
+				output.endsWith('/browser') &&
+				config.build.lib === false &&
+				config.build.assetsInlineLimit !== 0
+			) {
 				throw new Error(
 					'[orkestrel-output-boundary] Browser assets must remain external for output auditing',
 				)
@@ -644,11 +727,13 @@ export function environmentBoundary(
 ): Plugin {
 	const trustedPackageRoots = new Set<string>()
 	let environmentRoot = WORKSPACE_ROOT
+	let resolvedConfig: ResolvedConfig | undefined
 	return {
 		name: 'orkestrel-environment-boundary',
 		enforce: 'pre',
 		configResolved(config) {
 			environmentRoot = physicalPath(config.root)
+			resolvedConfig = config
 		},
 		async resolveId(source, importer) {
 			if (importer === undefined || !isWorkspaceBoundaryModule(importer)) return null
@@ -694,7 +779,7 @@ export function environmentBoundary(
 							? packageRootForResolved(physicalResolution)
 							: undefined
 					if (mappedPackageRoot === undefined) {
-						this.error(
+						return this.error(
 							'Dependency package imports must resolve inside an exact physical package root',
 						)
 					}
@@ -713,7 +798,7 @@ export function environmentBoundary(
 				const packageRoot =
 					packageName === undefined ? undefined : packageRootOf(packageName, physicalResolution)
 				if (packageRoot === undefined || !containedPath(packageRoot, physicalResolution)) {
-					this.error('Resolved dependencies must remain inside their physical package root')
+					return this.error('Resolved dependencies must remain inside their physical package root')
 				}
 				trustedPackageRoots.add(packageRoot)
 			}
@@ -744,7 +829,7 @@ export function environmentBoundary(
 			}
 			const code = readBoundedFile(physicalImporter, ENVIRONMENT_MODULE_BYTES)
 			if (code === undefined) {
-				this.error('Dependency module source must be a bounded regular file')
+				return this.error('Dependency module source must be a bounded regular file')
 			}
 			for (const source of await environmentAssetSources(code, id)) {
 				const normalizedSource = source.replaceAll('\\', '/')
@@ -836,6 +921,25 @@ export function environmentBoundary(
 				const environmentModule =
 					target !== undefined && /^(?:app|src)\/(?:core|browser|server)\//.test(target)
 				if (!environmentModule && importerPackageRoot === undefined) return null
+				if (isCSSRequest(id)) {
+					const config = resolvedConfig
+					if (config === undefined) {
+						return this.error('Environment boundary requires resolved Vite configuration')
+					}
+					const stylesheet = await preprocessCSS(code, id, config)
+					for (const dependency of stylesheet.deps ?? []) {
+						const physicalDependency = physicalPath(dependency)
+						const dependencyTarget = workspacePath(physicalDependency)
+						if (dependencyTarget === undefined) {
+							if (trustedPackageRootFor(physicalDependency, trustedPackageRoots) === undefined) {
+								this.error('Environment modules cannot import files outside the workspace')
+							}
+							continue
+						}
+						const dependencyError = environmentPathError(owner, dependencyTarget)
+						if (dependencyError !== undefined) this.error(dependencyError)
+					}
+				}
 				for (const source of await environmentAssetSources(code, id)) {
 					const normalizedSource = source.replaceAll('\\', '/')
 					const sourceError = environmentSourceError(owner, normalizedSource)
@@ -866,7 +970,9 @@ export function environmentBoundary(
 									? undefined
 									: packageRootOf(packageName, physicalSource)
 							if (packageRoot === undefined || !containedPath(packageRoot, physicalSource)) {
-								this.error('Resolved dependencies must remain inside their physical package root')
+								return this.error(
+									'Resolved dependencies must remain inside their physical package root',
+								)
 							}
 							trustedPackageRoots.add(packageRoot)
 						}
@@ -874,7 +980,7 @@ export function environmentBoundary(
 					}
 					const resolvedSource = workspacePath(physicalSource)
 					if (resolvedSource === undefined) {
-						this.error('Environment modules cannot import files outside the workspace')
+						return this.error('Environment modules cannot import files outside the workspace')
 					}
 					const assetError = environmentPathError(owner, resolvedSource)
 					if (assetError !== undefined) this.error(assetError)
@@ -910,10 +1016,10 @@ export const srcBrowser = (config?: UserConfig): UserConfig =>
 	srcCore(
 		mergeConfig(
 			{
+				css: ENVIRONMENT_CSS,
 				publicDir: false,
 				plugins: [outputBoundary('dist/src/browser'), environmentBoundary('src/browser')],
 				build: {
-					assetsInlineLimit: 0,
 					lib: {
 						entry: resolveWorkspacePath('src/browser/index.ts'),
 						formats: ['es'],
