@@ -1,3 +1,4 @@
+import type { IncomingMessage } from 'node:http'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { createDispatcher } from '../../../src/core/index.js'
@@ -197,6 +198,73 @@ describe('buildRequest', () => {
 		await server.close()
 
 		expect(recorder.count).toBe(1)
+		const reason = recorder.calls[0]?.[0]
+		expect(reason).toBeInstanceOf(Error)
+		if (!(reason instanceof Error)) throw new Error('expected the incomplete request abort reason')
+		expect(reason.message).toBe('request to /x disconnected before completion')
+	})
+
+	it('aborts request.signal when a real client disconnects after sending a complete request', async () => {
+		const entered = Promise.withResolvers<Request>()
+		const completed = createRecorder<[boolean]>()
+		const dispatcher = createDispatcher<IncomingMessage>({
+			routes: [
+				{
+					method: 'POST',
+					path: '/stream',
+					handler: async (request, context) => {
+						await request.text()
+						completed.handler(context.state.complete)
+						entered.resolve(request)
+						await new Promise<void>((resolve) =>
+							request.signal.addEventListener('abort', () => resolve(), { once: true }),
+						)
+						return new Response(null, { status: 204 })
+					},
+				},
+			],
+		})
+		const server = await startServer(createListener(dispatcher, (message) => message))
+		const socket = net.connect(server.port, '127.0.0.1', () => {
+			socket.write('POST /stream HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\ndone')
+		})
+		const request = await entered.promise
+		// The body was fully received before the client left, so ONLY the response-close
+		// path can abort this signal — `!message.complete` is false and cannot fire.
+		expect(completed.calls).toEqual([[true]])
+		const aborted = new Promise<void>((resolve) =>
+			request.signal.addEventListener('abort', () => resolve(), { once: true }),
+		)
+		socket.destroy()
+		// Park on the real abort rather than asserting into the race: the response's own
+		// `close` lands a turn after the socket dies.
+		await aborted
+		await server.close()
+
+		expect(request.signal.aborted).toBe(true)
+		const reason = request.signal.reason
+		expect(reason).toBeInstanceOf(Error)
+		if (!(reason instanceof Error)) throw new Error('expected the response disconnect abort reason')
+		expect(reason.message).toBe('request to /stream disconnected before response completed')
+	})
+
+	it('does not abort or retain its response close listener after a normal response', async () => {
+		const captured = createRecorder<[Request]>()
+		const closed = Promise.withResolvers<number>()
+		const server = await startServer((incoming, response) => {
+			captured.handler(buildRequest(incoming, { response }))
+			response.once('close', () => closed.resolve(response.listenerCount('close')))
+			response.end('ok')
+		})
+		const response = await fetch(server.url)
+		expect(await response.text()).toBe('ok')
+		const listeners = await closed.promise
+		await server.close()
+
+		const request = captured.calls[0]?.[0]
+		if (request === undefined) throw new Error('expected one captured request')
+		expect(request.signal.aborted).toBe(false)
+		expect(listeners).toBe(0)
 	})
 })
 

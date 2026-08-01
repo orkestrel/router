@@ -50,22 +50,26 @@ export function isEncryptedSocket(socket: unknown): socket is { readonly encrypt
  *   (reconciling the DOM + node type worlds under the root config), with
  *   `duplex: 'half'` set as Node's fetch implementation requires for a
  *   streamed request body.
- * - A fresh `@orkestrel/abort` handle backs `request.signal`: if the
- *   connection closes before the message finished (`!message.complete`), the
- *   handle aborts — so a handler awaiting `request.signal` observes a client
- *   disconnect the fetch-standard way, with zero router-specific API.
+ * - A fresh `@orkestrel/abort` handle backs `request.signal`. It aborts when
+ *   the request connection closes before the message finished
+ *   (`!message.complete`), or when the paired `options.response` closes before
+ *   its response finished (`!response.writableEnded`). A handler awaiting the
+ *   signal therefore observes either side of a client disconnect the
+ *   fetch-standard way, with zero router-specific API.
  *
  * @param message - The raw `node:http` request
- * @param options - Optional `origin` override (§5.3 {@link RequestOptions})
- * @returns A fetch `Request` whose `signal` fires on client disconnect
+ * @param options - Optional `origin` override and paired `response` for
+ *   response-side disconnect tracking (§5.3 {@link RequestOptions})
+ * @returns A fetch `Request` whose `signal` fires on an incomplete request, or
+ *   on a response-side client disconnect when `options.response` is provided
  *
  * @example
  * ```ts
  * import { buildRequest } from '@src/server'
  * import http from 'node:http'
  *
- * const server = http.createServer((incoming) => {
- * 	const request = buildRequest(incoming)
+ * const server = http.createServer((incoming, response) => {
+ * 	const request = buildRequest(incoming, { response })
  * 	console.log(request.method, request.url)
  * })
  * ```
@@ -92,6 +96,12 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
 		if (!message.complete)
 			abort.abort(new Error(`request to ${url.pathname} disconnected before completion`))
 	})
+	const response = options?.response
+	if (response !== undefined)
+		response.once('close', () => {
+			if (!response.writableEnded)
+				abort.abort(new Error(`request to ${url.pathname} disconnected before response completed`))
+		})
 
 	const carriesBody = method !== 'GET' && method !== 'HEAD'
 	const init: RequestInit = { method, headers, signal: abort.signal }
@@ -197,7 +207,7 @@ export async function handleListenerRequest<TState>(
 	response: ServerResponse,
 ): Promise<void> {
 	try {
-		const converted = buildRequest(request)
+		const converted = buildRequest(request, { response })
 		const result = await dispatcher.handle(converted, state(request))
 		await sendResponse(result, response)
 	} catch (error) {
