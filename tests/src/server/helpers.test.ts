@@ -1,4 +1,4 @@
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { createDispatcher } from '../../../src/core/index.js'
@@ -9,8 +9,8 @@ import {
 	buildRequest,
 	sendResponse,
 } from '../../../src/server/helpers.js'
-import { createRecorder } from '../../setup.js'
-import { startServer } from '../../setupServer.js'
+import { createRecorder, createTestBody, waitForDelay } from '../../setup.js'
+import { countResponseListeners, startPausedResponse, startServer } from '../../setupServer.js'
 
 // §16 mirror of `src/server/helpers.ts` — pins the whole node adapter over
 // REAL sockets (no mocks, §16): `buildRequest` fidelity, client-disconnect →
@@ -307,13 +307,13 @@ describe('sendResponse', () => {
 		expect(cookieLines).toEqual(['set-cookie: a=1', 'set-cookie: b=2'])
 	})
 
-	it('streams a chunked body across multiple writes', async () => {
+	it('delivers byte-identical chunks on the fast path', async () => {
+		const expected = Uint8Array.from([0, 1, 127, 128, 254, 255, 10, 13])
 		const server = await startServer((_request, response) => {
 			const body = new ReadableStream<Uint8Array>({
-				async start(controller) {
-					controller.enqueue(new TextEncoder().encode('chunk-1-'))
-					await new Promise((resolve) => setTimeout(resolve, 5))
-					controller.enqueue(new TextEncoder().encode('chunk-2'))
+				start(controller) {
+					controller.enqueue(expected.slice(0, 3))
+					controller.enqueue(expected.slice(3))
 					controller.close()
 				},
 			})
@@ -322,46 +322,135 @@ describe('sendResponse', () => {
 		const response = await fetch(server.url)
 		await server.close()
 
-		expect(await response.text()).toBe('chunk-1-chunk-2')
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(expected)
 	})
 
-	it('stops cleanly without throwing when the target is destroyed mid-stream', async () => {
-		let settled: 'resolved' | 'rejected' | undefined
-		const server = await startServer((_request, response) => {
-			const body = new ReadableStream<Uint8Array>({
-				async start(controller) {
-					controller.enqueue(new TextEncoder().encode('chunk-1-'))
-					await new Promise((resolve) => setTimeout(resolve, 5))
-					response.destroy()
-					controller.enqueue(new TextEncoder().encode('chunk-2'))
-					controller.close()
-				},
-			})
-			void sendResponse(new Response(body), response).then(
-				() => {
-					settled = 'resolved'
-				},
-				() => {
-					settled = 'rejected'
-				},
-			)
-		})
-		await new Promise<void>((resolve) => {
-			const socket = net.connect(server.port, '127.0.0.1', () => {
-				socket.write('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n')
-			})
-			socket.on('data', () => {})
-			socket.on('close', () => resolve())
-			socket.on('error', () => resolve())
-			socket.setTimeout(200, () => {
-				socket.destroy()
-				resolve()
-			})
-		})
-		await new Promise((resolve) => setTimeout(resolve, 30))
-		await server.close()
+	it('pauses body pulls under socket pressure, cleans each wait, and completes after drain', async () => {
+		const chunk = new Uint8Array(64 * 1024).fill(97)
+		const count = 512
+		const length = chunk.byteLength * count
+		let settled = false
+		let failure: unknown
+		const sent = Promise.withResolvers<void>()
+		const targetReady =
+			Promise.withResolvers<
+				readonly [
+					target: ServerResponse,
+					baseline: ReturnType<typeof countResponseListeners>,
+					source: ReturnType<typeof createTestBody>,
+				]
+			>()
+		const paused = await startPausedResponse(
+			(_request, response) => {
+				const source = createTestBody(chunk, count)
+				targetReady.resolve([response, countResponseListeners(response), source])
+				void sendResponse(
+					new Response(source.body, { headers: { 'content-length': String(length) } }),
+					response,
+				).then(
+					() => {
+						settled = true
+						sent.resolve()
+					},
+					(error) => {
+						failure = error
+						sent.resolve()
+					},
+				)
+			},
+			{ highWaterMark: 1024 },
+		)
+		const { server, request, response: incoming } = paused
+		const [target, baseline, source] = await targetReady.promise
+		await waitForDelay(50)
+		const pressuredPulls = source.pulls
+		const pressuredSettled = settled
+		const pressured = countResponseListeners(target)
+		const chunks: Buffer[] = []
+		const received = Promise.withResolvers<Buffer>()
+		incoming.on('data', (part: Buffer) => chunks.push(part))
+		incoming.once('end', () => received.resolve(Buffer.concat(chunks)))
+		incoming.once('error', received.reject)
+		let output: Buffer | undefined
+		let final = baseline
+		try {
+			incoming.resume()
+			output = await received.promise
+			await sent.promise
+			final = countResponseListeners(target)
+		} finally {
+			incoming.destroy()
+			request.destroy()
+			await server.close()
+		}
 
-		expect(settled).toBe('resolved')
+		expect(pressuredPulls).toBeGreaterThan(2)
+		expect(pressuredPulls).toBeLessThan(count)
+		expect(pressuredSettled).toBe(false)
+		expect(pressured.drain - baseline.drain).toBe(1)
+		expect(pressured.close - baseline.close).toBe(1)
+		expect(pressured.error - baseline.error).toBe(2)
+		expect(source.pulls).toBe(count)
+		expect(settled).toBe(true)
+		expect(failure).toBeUndefined()
+		expect(final).toEqual(baseline)
+		if (output === undefined) throw new Error('expected the complete pressured response body')
+		expect(output.byteLength).toBe(length)
+		expect(output.every((byte) => byte === 97)).toBe(true)
+	}, 10000)
+
+	it('settles and removes pressure listeners when the consumer disconnects before drain', async () => {
+		const chunk = new Uint8Array(64 * 1024).fill(97)
+		const count = 512
+		let settled = false
+		let failure: unknown
+		const targetReady =
+			Promise.withResolvers<
+				readonly [
+					target: ServerResponse,
+					baseline: ReturnType<typeof countResponseListeners>,
+					source: ReturnType<typeof createTestBody>,
+				]
+			>()
+		const paused = await startPausedResponse(
+			(_request, response) => {
+				const source = createTestBody(chunk, count)
+				targetReady.resolve([response, countResponseListeners(response), source])
+				void sendResponse(new Response(source.body), response).then(
+					() => {
+						settled = true
+					},
+					(error) => {
+						failure = error
+					},
+				)
+			},
+			{ highWaterMark: 1024 },
+		)
+		const { server, request, response: incoming } = paused
+		const [target, baseline, source] = await targetReady.promise
+		await waitForDelay(50)
+		const pressuredPulls = source.pulls
+		const pressured = countResponseListeners(target)
+		const closed = Promise.withResolvers<void>()
+		incoming.once('close', () => closed.resolve())
+		incoming.destroy()
+		await closed.promise
+		request.destroy()
+		await server.close()
+		await waitForDelay()
+
+		expect(pressuredPulls).toBeGreaterThan(2)
+		expect(pressuredPulls).toBeLessThan(count)
+		expect(pressured.drain - baseline.drain).toBe(1)
+		expect(pressured.close - baseline.close).toBe(1)
+		expect(pressured.error - baseline.error).toBe(2)
+		expect(settled).toBe(true)
+		expect(failure).toBeUndefined()
+		const final = countResponseListeners(target)
+		expect(final.drain).toBeLessThanOrEqual(baseline.drain)
+		expect(final.close).toBeLessThanOrEqual(baseline.close)
+		expect(final.error).toBeLessThanOrEqual(baseline.error)
 	}, 10000)
 
 	it('ends the target immediately for a null body', async () => {

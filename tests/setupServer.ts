@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import { fileURLToPath, URL } from 'node:url'
 
@@ -16,6 +17,20 @@ export interface TestServerInterface {
 	readonly url: string
 	readonly port: number
 	close(): Promise<void>
+}
+
+/** A paused real HTTP response and the request/server resources that own it. */
+export interface PausedResponseInterface {
+	readonly server: TestServerInterface
+	readonly request: http.ClientRequest
+	readonly response: IncomingMessage
+}
+
+/** Listener totals at the `sendResponse` backpressure race seams. */
+export interface ResponseListenerSnapshot {
+	readonly drain: number
+	readonly close: number
+	readonly error: number
 }
 
 /**
@@ -49,6 +64,7 @@ export function isAddressInfo(value: string | AddressInfo | null): value is Addr
  * across tests.
  *
  * @param listener - The `node:http` request listener to serve
+ * @param options - Optional native server settings for the real fixture
  * @returns A {@link TestServerInterface} bound and ready to receive requests
  *
  * @example
@@ -60,9 +76,13 @@ export function isAddressInfo(value: string | AddressInfo | null): value is Addr
  * await server.close()
  * ```
  */
-export function startServer(listener: http.RequestListener): Promise<TestServerInterface> {
+export function startServer(
+	listener: http.RequestListener,
+	options?: http.ServerOptions,
+): Promise<TestServerInterface> {
 	return new Promise((resolve, reject) => {
-		const server = http.createServer(listener)
+		const server =
+			options === undefined ? http.createServer(listener) : http.createServer(options, listener)
 		server.listen(0, '127.0.0.1', () => {
 			const address = server.address()
 			if (!isAddressInfo(address)) {
@@ -80,4 +100,45 @@ export function startServer(listener: http.RequestListener): Promise<TestServerI
 			})
 		})
 	})
+}
+
+/**
+ * Request a real fixture server response and pause its client-side body.
+ *
+ * @param listener - The `node:http` request listener to serve
+ * @param options - Optional native server settings for the real fixture
+ * @returns The running server, client request, and paused incoming response
+ */
+export async function startPausedResponse(
+	listener: http.RequestListener,
+	options?: http.ServerOptions,
+): Promise<PausedResponseInterface> {
+	const server = await startServer(listener, options)
+	const ready = Promise.withResolvers<IncomingMessage>()
+	const request = http.get(server.url, (response) => {
+		response.pause()
+		ready.resolve(response)
+	})
+	request.once('error', ready.reject)
+	try {
+		return { server, request, response: await ready.promise }
+	} catch (error) {
+		request.destroy()
+		await server.close()
+		throw error
+	}
+}
+
+/**
+ * Count listeners installed on the response events used by pressure waits.
+ *
+ * @param response - The real server response to inspect
+ * @returns Current `drain`, `close`, and `error` listener totals
+ */
+export function countResponseListeners(response: ServerResponse): ResponseListenerSnapshot {
+	return {
+		drain: response.listenerCount('drain'),
+		close: response.listenerCount('close'),
+		error: response.listenerCount('error'),
+	}
 }

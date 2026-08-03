@@ -52,6 +52,36 @@ export function createRecorder<TArgs extends readonly unknown[]>(): TestRecorder
 	}
 }
 
+/** A finite counting `ReadableStream` fixture and its observed pull total. */
+export interface TestBodyInterface {
+	readonly body: ReadableStream<Uint8Array>
+	readonly pulls: number
+}
+
+/**
+ * Create a finite byte stream that records each pull from its consumer.
+ *
+ * @param chunk - The bytes to enqueue for each pull
+ * @param count - The number of chunks to produce before closing
+ * @returns A stream fixture exposing the body and its current pull total
+ */
+export function createTestBody(chunk: Uint8Array, count: number): TestBodyInterface {
+	let pulls = 0
+	const body = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			pulls += 1
+			controller.enqueue(chunk)
+			if (pulls === count) controller.close()
+		},
+	})
+	return {
+		body,
+		get pulls() {
+			return pulls
+		},
+	}
+}
+
 // ── Delay helper (a single shared `setTimeout` promise) ──────────────────────
 //
 // AGENTS §16.1: use one delay helper instead of inline `setTimeout` promises

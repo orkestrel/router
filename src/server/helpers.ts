@@ -8,6 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DispatcherInterface } from '@src/core'
 import type { ListenerFunction, RequestOptions, StateFunction } from './types.js'
+import { once } from 'node:events'
 import { createAbort } from '@orkestrel/abort'
 import { isRecord } from '@orkestrel/contract'
 
@@ -130,11 +131,13 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  * written via {@link Headers.getSetCookie} so multiple cookies stay distinct
  * instead of collapsing into one comma-joined header), then streams the web
  * body to `target` chunk by chunk (`for await` over `response.body`), ending
- * `target` when the stream completes. A `null` body ends `target` immediately
- * with no further writes. Total error posture: if `target` is destroyed
- * mid-stream (the client disconnected), the write loop stops and `target` is
- * left as-is rather than throwing an unhandled rejection — a destroyed
- * target is not this function's error to surface.
+ * `target` when the stream completes. When a write reports backpressure, the
+ * body pump waits for `drain` before pulling again, unless the target closes,
+ * errors, or is destroyed first. A `null` body ends `target` immediately with
+ * no further writes. Total error posture: if `target` is destroyed mid-stream
+ * (the client disconnected), the write loop stops and `target` is left as-is
+ * rather than throwing an unhandled rejection — a destroyed target is not
+ * this function's error to surface.
  *
  * @param response - The fetch `Response` to write
  * @param target - The `node:http` response to write it to
@@ -168,7 +171,19 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 	try {
 		for await (const chunk of response.body) {
 			if (target.destroyed) return
-			target.write(chunk)
+			if (!target.write(chunk)) {
+				if (target.destroyed) return
+				const abort = new AbortController()
+				try {
+					await Promise.race([
+						once(target, 'drain', { signal: abort.signal }),
+						once(target, 'close', { signal: abort.signal }),
+					])
+				} finally {
+					abort.abort()
+				}
+				if (target.destroyed) return
+			}
 		}
 		if (!target.destroyed) target.end()
 	} catch {
