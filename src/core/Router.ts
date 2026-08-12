@@ -41,7 +41,7 @@ import { Group } from './Group.js'
  * ```
  */
 export class Router<Meta> implements RouterInterface<Meta> {
-	readonly #entries: RouteEntry<Meta>[] = []
+	readonly #entries: Array<RouteEntry<Meta>> = []
 	readonly #compiled: CompiledPath[] = []
 	readonly #sensitive: boolean
 	readonly #key: ((entry: RouteEntry<Meta>) => string) | undefined
@@ -58,8 +58,8 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	}
 
 	add(entry: RouteEntry<Meta>): void
-	add(entries: readonly RouteEntry<Meta>[]): void
-	add(input: RouteEntry<Meta> | readonly RouteEntry<Meta>[]): void {
+	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
+	add(input: RouteEntry<Meta> | ReadonlyArray<RouteEntry<Meta>>): void {
 		const inputs = Array.isArray(input) ? input : [input]
 		for (const entry of inputs) this.#register(entry)
 	}
@@ -85,11 +85,11 @@ export class Router<Meta> implements RouterInterface<Meta> {
 		}
 	}
 
-	entries(): readonly RouteEntry<Meta>[]
-	entries(pathname: string): readonly RouteEntry<Meta>[]
-	entries(pathname?: string): readonly RouteEntry<Meta>[] {
+	entries(): ReadonlyArray<RouteEntry<Meta>>
+	entries(pathname: string): ReadonlyArray<RouteEntry<Meta>>
+	entries(pathname?: string): ReadonlyArray<RouteEntry<Meta>> {
 		if (pathname === undefined) return [...this.#entries]
-		const out: RouteEntry<Meta>[] = []
+		const out: Array<RouteEntry<Meta>> = []
 		for (let index = 0; index < this.#entries.length; index += 1) {
 			const entry = this.#entries[index]
 			const compiled = this.#compiled[index]

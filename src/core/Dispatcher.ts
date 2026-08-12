@@ -85,8 +85,8 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	}
 
 	add<Path extends string>(input: RouteInput<Path, TState>): void
-	add(inputs: readonly RouteInput<string, TState>[]): void
-	add(input: RouteInput<string, TState> | readonly RouteInput<string, TState>[]): void {
+	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
+	add(input: RouteInput<string, TState> | ReadonlyArray<RouteInput<string, TState>>): void {
 		const inputs = Array.isArray(input) ? input : [input]
 		for (const route of inputs) this.#register(route)
 	}
@@ -163,7 +163,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	// The derived `Allow` set for a pathname — every distinct registered method, with `HEAD`
 	// added whenever `GET` is present and `HEAD` is not explicitly registered (§5.1).
 	#allow(pathname: string): readonly Method[] {
-		const entries: readonly RouteEntry<RouteRecord<TState>>[] = this.router.entries(pathname)
+		const entries: ReadonlyArray<RouteEntry<RouteRecord<TState>>> = this.router.entries(pathname)
 		const methods = new Set<Method>()
 		for (const entry of entries) methods.add(entry.meta.method)
 		if (methods.has('GET')) methods.add('HEAD')

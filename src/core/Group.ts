@@ -32,8 +32,8 @@ export class Group<Meta> implements GroupInterface<Meta> {
 	}
 
 	add(entry: RouteEntry<Meta>): void
-	add(entries: readonly RouteEntry<Meta>[]): void
-	add(input: RouteEntry<Meta> | readonly RouteEntry<Meta>[]): void {
+	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
+	add(input: RouteEntry<Meta> | ReadonlyArray<RouteEntry<Meta>>): void {
 		const inputs = Array.isArray(input) ? input : [input]
 		this.#parent.add(
 			inputs.map((entry) => ({ ...entry, path: joinPaths(this.prefix, entry.path) })),

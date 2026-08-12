@@ -34,8 +34,8 @@ export class DispatchGroup<TState> implements DispatchGroupInterface<TState> {
 	}
 
 	add<Path extends string>(input: RouteInput<Path, TState>): void
-	add(inputs: readonly RouteInput<string, TState>[]): void
-	add(input: RouteInput<string, TState> | readonly RouteInput<string, TState>[]): void {
+	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
+	add(input: RouteInput<string, TState> | ReadonlyArray<RouteInput<string, TState>>): void {
 		const inputs = Array.isArray(input) ? input : [input]
 		this.#parent.add(
 			inputs.map((route) => ({ ...route, path: joinPaths(this.prefix, route.path) })),

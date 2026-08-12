@@ -73,7 +73,7 @@ export type NavigatorEventMap<Meta> = {
  *   not a listener throw, so it is surfaced through the same channel).
  */
 export interface NavigatorOptions<Meta> {
-	readonly routes: readonly RouteEntry<Meta>[]
+	readonly routes: ReadonlyArray<RouteEntry<Meta>>
 	readonly history?: boolean
 	readonly base?: string
 	readonly fallback?: string

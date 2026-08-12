@@ -15,7 +15,7 @@ import { waitForDelay } from './setup.js'
  *
  * @param navigators - The tracked navigators to tear down (emptied in place)
  */
-export function drainNavigators(navigators: NavigatorInterface<unknown>[]): void {
+export function drainNavigators(navigators: Array<NavigatorInterface<unknown>>): void {
 	while (navigators.length > 0) navigators.pop()?.destroy()
 }
 

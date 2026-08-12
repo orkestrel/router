@@ -132,7 +132,7 @@ describe('findAnchor', () => {
 		const div = document.createElement('div')
 		document.body.append(div)
 		try {
-			const results: (HTMLAnchorElement | undefined)[] = []
+			const results: Array<HTMLAnchorElement | undefined> = []
 			document.addEventListener('click', (inner) => {
 				results.push(findAnchor(inner))
 			})

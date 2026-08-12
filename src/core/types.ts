@@ -302,7 +302,7 @@ export type AnswerHandler<Meta> = (meta: Meta) => boolean
  *   registered entry is kept, even duplicate paths.
  */
 export interface RouterOptions<Meta> {
-	readonly entries?: readonly RouteEntry<Meta>[]
+	readonly entries?: ReadonlyArray<RouteEntry<Meta>>
 	readonly sensitive?: boolean
 	readonly key?: (entry: RouteEntry<Meta>) => string
 }
@@ -340,10 +340,10 @@ export interface RouterOptions<Meta> {
 export interface RouterInterface<Meta> {
 	readonly count: number
 	add(entry: RouteEntry<Meta>): void
-	add(entries: readonly RouteEntry<Meta>[]): void
+	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
 	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined
-	entries(): readonly RouteEntry<Meta>[]
-	entries(pathname: string): readonly RouteEntry<Meta>[]
+	entries(): ReadonlyArray<RouteEntry<Meta>>
+	entries(pathname: string): ReadonlyArray<RouteEntry<Meta>>
 	group(prefix: string): GroupInterface<Meta>
 	clear(): void
 }
@@ -366,7 +366,7 @@ export interface RouterInterface<Meta> {
 export interface GroupInterface<Meta> {
 	readonly prefix: string
 	add(entry: RouteEntry<Meta>): void
-	add(entries: readonly RouteEntry<Meta>[]): void
+	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
 	group(prefix: string): GroupInterface<Meta>
 }
 
@@ -524,7 +524,7 @@ export type DispatcherEventMap = {
  *   forwarded alongside `on`.
  */
 export interface DispatcherOptions<TState> {
-	readonly routes?: readonly RouteInput<string, TState>[]
+	readonly routes?: ReadonlyArray<RouteInput<string, TState>>
 	readonly sensitive?: boolean
 	readonly unmatched?: (request: Request) => Response | Promise<Response>
 	readonly unmethoded?: (request: Request, allow: readonly Method[]) => Response | Promise<Response>
@@ -567,7 +567,7 @@ export interface DispatcherInterface<TState = undefined> {
 	readonly router: RouterInterface<RouteRecord<TState>>
 	readonly emitter: EmitterInterface<DispatcherEventMap>
 	add<Path extends string>(input: RouteInput<Path, TState>): void
-	add(inputs: readonly RouteInput<string, TState>[]): void
+	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
 	group(prefix: string): DispatchGroupInterface<TState>
 	match(method: Method, pathname: string): DispatchResult<TState>
 	handle(request: Request, state: TState): Promise<Response>
@@ -593,6 +593,6 @@ export interface DispatcherInterface<TState = undefined> {
 export interface DispatchGroupInterface<TState> {
 	readonly prefix: string
 	add<Path extends string>(input: RouteInput<Path, TState>): void
-	add(inputs: readonly RouteInput<string, TState>[]): void
+	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
 	group(prefix: string): DispatchGroupInterface<TState>
 }

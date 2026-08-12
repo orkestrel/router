@@ -27,7 +27,7 @@ interface PageMeta {
 // Every navigator started in a test is tracked and destroyed after it, so no
 // `hashchange`/`popstate`/click listener leaks across cases (the §16.1 teardown
 // shape). `location.hash` and `history` are reset before each case.
-const navigators: NavigatorInterface<PageMeta>[] = []
+const navigators: Array<NavigatorInterface<PageMeta>> = []
 
 beforeEach(async () => {
 	drainNavigators(navigators)
@@ -40,7 +40,7 @@ afterEach(() => {
 })
 
 function start(
-	routes: readonly { readonly path: string; readonly meta: PageMeta }[],
+	routes: ReadonlyArray<{ readonly path: string; readonly meta: PageMeta }>,
 	options?: Omit<Partial<NavigatorOptions<PageMeta>>, 'routes'>,
 ): NavigatorInterface<PageMeta> {
 	const navigator = createNavigator<PageMeta>({ routes, ...options })
@@ -415,7 +415,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('a guard throw vetoes and routes to the error handler', async () => {
-		const errors: [error: unknown, event: string][] = []
+		const errors: Array<[error: unknown, event: string]> = []
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
 		const navigator = createNavigator<PageMeta>({
 			routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
@@ -455,7 +455,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('receives from as undefined on the very first navigation', () => {
-		const seen: (RouterMatch<PageMeta> | undefined)[] = []
+		const seen: Array<RouterMatch<PageMeta> | undefined> = []
 		const navigator = createNavigator<PageMeta>({
 			routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
 			guard: (_to, from) => {
@@ -469,7 +469,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('receives the previous active match as from on a second navigation', async () => {
-		const seen: (RouterMatch<PageMeta> | undefined)[] = []
+		const seen: Array<RouterMatch<PageMeta> | undefined> = []
 		const navigator = createNavigator<PageMeta>({
 			routes: [
 				{ path: '/tokens', meta: { page: 'tokens' } },
