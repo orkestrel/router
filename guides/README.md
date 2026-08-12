@@ -5,14 +5,14 @@ directory (AGENTS §22).
 
 ## By concept
 
-| Concept | Spec                             | Source                                                                                    | Tests                                                                                                                         |
-| ------- | -------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Concept | Spec                     | Source                                                                                    | Tests                                                                                                                         |
+| ------- | ------------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Router  | [`router.md`](router.md) | [`src/core`](../src/core), [`src/browser`](../src/browser), [`src/server`](../src/server) | [`tests/src/core`](../tests/src/core), [`tests/src/browser`](../tests/src/browser), [`tests/src/server`](../tests/src/server) |
 
 ## By directory
 
-| Directory     | Guide                            |
-| ------------- | -------------------------------- |
+| Directory     | Guide                    |
+| ------------- | ------------------------ |
 | `src/core`    | [`router.md`](router.md) |
 | `src/browser` | [`router.md`](router.md) |
 | `src/server`  | [`router.md`](router.md) |
