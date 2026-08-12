@@ -639,31 +639,41 @@ describe('Navigator — match(path) is a pure lookup', () => {
 
 describe('Navigator — construction guards', () => {
 	it('throws TypeError when guard is not a function', () => {
+		// A malformed guard, arriving the way it would from an untyped boundary (parsed JSON) —
+		// `JSON.parse` returns `any`, so assigning it to the declared guard type below needs no
+		// `as` (the value is genuinely a runtime string).
+		const malformedGuard: NonNullable<NavigatorOptions<PageMeta>['guard']> = JSON.parse('"nope"')
 		expect(
 			() =>
 				new Navigator<PageMeta>({
 					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
-					guard: 'nope' as unknown as () => boolean,
+					guard: malformedGuard,
 				}),
 		).toThrow(TypeError)
 	})
 
 	it('throws TypeError when fallback is not a string', () => {
+		// A fallback sourced from an untyped boundary (parsed JSON) — assigned to the declared
+		// `string` type with no `as` (the value is genuinely a runtime number).
+		const malformedFallback: string = JSON.parse('7')
 		expect(
 			() =>
 				new Navigator<PageMeta>({
 					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
-					fallback: 7 as unknown as string,
+					fallback: malformedFallback,
 				}),
 		).toThrow(TypeError)
 	})
 
 	it('throws TypeError when base is not a string', () => {
+		// A base sourced from an untyped boundary (parsed JSON) — assigned to the declared
+		// `string` type with no `as` (the value is genuinely a runtime number).
+		const malformedBase: string = JSON.parse('7')
 		expect(
 			() =>
 				new Navigator<PageMeta>({
 					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
-					base: 7 as unknown as string,
+					base: malformedBase,
 				}),
 		).toThrow(TypeError)
 	})
