@@ -3,7 +3,7 @@ import type { DispatcherInterface, RouterInterface } from '../../../src/core/typ
 import { createDispatcher, createRouter } from '../../../src/core/factories.js'
 import { Dispatcher } from '../../../src/core/Dispatcher.js'
 import { Router } from '../../../src/core/Router.js'
-import { createRecorder } from '../../setup.js'
+import { createRecorder } from '@orkestrel/test'
 
 // §16 mirror of `src/core/factories.ts` — `createRouter`/`createDispatcher` round-trips
 // (instances satisfy their interfaces, options forwarded) plus their return-type assertions.

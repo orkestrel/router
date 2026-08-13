@@ -2,7 +2,7 @@ import type { NavigatorInterface, NavigatorOptions } from '../../../src/browser/
 import type { RouterMatch } from '../../../src/core/types.js'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { createNavigator, Navigator } from '../../../src/browser/index.js'
-import { createRecorder, waitForDelay } from '../../setup.js'
+import { createRecorder, waitForDelay } from '@orkestrel/test'
 import {
 	createAnchor,
 	createDeferred,

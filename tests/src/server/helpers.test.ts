@@ -9,7 +9,8 @@ import {
 	buildRequest,
 	sendResponse,
 } from '../../../src/server/helpers.js'
-import { createRecorder, createTestBody, waitForDelay } from '../../setup.js'
+import { createRecorder, waitForDelay } from '@orkestrel/test'
+import { createTestBody } from '../../setup.js'
 import { countResponseListeners, startPausedResponse, startServer } from '../../setupServer.js'
 
 // §16 mirror of `src/server/helpers.ts` — pins the whole node adapter over

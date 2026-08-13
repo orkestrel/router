@@ -9,7 +9,7 @@ import type {
 } from '../../../src/core/types.js'
 import { createDispatcher } from '../../../src/core/factories.js'
 import { Dispatcher } from '../../../src/core/Dispatcher.js'
-import { createRecorder } from '../../setup.js'
+import { createRecorder } from '@orkestrel/test'
 
 // §16 net-new mirror slice of `src/core/Dispatcher.ts` — U6-scoped: type-level
 // surfaces (RouteHandler context typing, TState generic flow, DispatcherInterface

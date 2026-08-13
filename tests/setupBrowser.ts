@@ -1,5 +1,5 @@
 import type { NavigatorInterface } from '../src/browser/types.js'
-import { waitForDelay } from './setup.js'
+import { waitForDelay } from '@orkestrel/test'
 
 // ── Browser-test setup (AGENTS §16.1) ─────────────────────────────────────────
 //
