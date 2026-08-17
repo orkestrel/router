@@ -5,7 +5,6 @@ import { createNavigator, Navigator } from '../../../src/browser/index.js'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import {
 	createAnchor,
-	createDeferred,
 	drainNavigators,
 	safeClick,
 	setHash,
@@ -329,7 +328,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('commits after an async allow', async () => {
-		const deferred = createDeferred<boolean>()
+		const deferred = Promise.withResolvers<boolean>()
 		const navigator = start([{ path: '/tokens', meta: { page: 'tokens' } }], {
 			guard: () => deferred.promise,
 		})
@@ -340,7 +339,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('discards an async veto — active stays unchanged, nothing emitted', async () => {
-		const deferred = createDeferred<boolean>()
+		const deferred = Promise.withResolvers<boolean>()
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
 		const navigator = createNavigator<PageMeta>({
 			routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
@@ -356,7 +355,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('supersede: a slow guard for navigation A is discarded when navigation B lands first', async () => {
-		const first = createDeferred<boolean>()
+		const first = Promise.withResolvers<boolean>()
 		const seenAborted: boolean[] = []
 		const navigator = createNavigator<PageMeta>({
 			routes: [
@@ -388,7 +387,7 @@ describe('Navigator — guard matrix', () => {
 	})
 
 	it('a total miss (no path match, no fallback match) supersedes and aborts a pending guarded navigation', async () => {
-		const deferred = createDeferred<boolean>()
+		const deferred = Promise.withResolvers<boolean>()
 		const seenAborted: boolean[] = []
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
 		const navigator = createNavigator<PageMeta>({
