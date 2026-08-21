@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
-import { fileURLToPath, URL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { resolveRoot } from '@orkestrel/test'
 import { createLoopback } from '@orkestrel/test/server'
 
 // ── Server-only setup (AGENTS §16.1 / §17.6) ─────────────────────────────────
@@ -10,7 +11,7 @@ import { createLoopback } from '@orkestrel/test/server'
 // `node:http` server on an ephemeral port, closed by every caller).
 
 /** The workspace root, anchored from this setup file's own location. */
-export const WORKSPACE_ROOT = fileURLToPath(new URL('..', import.meta.url))
+export const WORKSPACE_ROOT = fileURLToPath(resolveRoot(import.meta))
 
 /** A running test server bound to an ephemeral port, with its base `url` and a `close` teardown. */
 export interface TestServerInterface {
