@@ -9,7 +9,7 @@ import {
 	buildRequest,
 	sendResponse,
 } from '../../../src/server/helpers.js'
-import { createRecorder, waitForDelay } from '@orkestrel/test'
+import { createRecorder, waitForCondition } from '@orkestrel/test'
 import { createTestBody } from '../../setup.js'
 import { countResponseListeners, startPausedResponse, startServer } from '../../setupServer.js'
 
@@ -363,7 +363,13 @@ describe('sendResponse', () => {
 		)
 		const { server, request, response: incoming } = paused
 		const [target, baseline, source] = await targetReady.promise
-		await waitForDelay(50)
+		await waitForCondition(
+			'the paused response is parked under pressure',
+			() =>
+				source.pulls > 2 &&
+				countResponseListeners(target).drain - baseline.drain === 1 &&
+				!settled,
+		)
 		const pressuredPulls = source.pulls
 		const pressuredSettled = settled
 		const pressured = countResponseListeners(target)
@@ -430,7 +436,11 @@ describe('sendResponse', () => {
 		)
 		const { server, request, response: incoming } = paused
 		const [target, baseline, source] = await targetReady.promise
-		await waitForDelay(50)
+		await waitForCondition(
+			'the disconnected response is parked under pressure',
+			() =>
+				source.pulls > 2 && countResponseListeners(target).drain - baseline.drain === 1,
+		)
 		const pressuredPulls = source.pulls
 		const pressured = countResponseListeners(target)
 		const closed = Promise.withResolvers<void>()
@@ -439,7 +449,10 @@ describe('sendResponse', () => {
 		await closed.promise
 		request.destroy()
 		await server.close()
-		await waitForDelay()
+		await waitForCondition(
+			'the disconnected send settles',
+			() => settled || failure !== undefined,
+		)
 
 		expect(pressuredPulls).toBeGreaterThan(2)
 		expect(pressuredPulls).toBeLessThan(count)
