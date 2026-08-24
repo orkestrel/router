@@ -366,9 +366,7 @@ describe('sendResponse', () => {
 		await waitForCondition(
 			'the paused response is parked under pressure',
 			() =>
-				source.pulls > 2 &&
-				countResponseListeners(target).drain - baseline.drain === 1 &&
-				!settled,
+				source.pulls > 2 && countResponseListeners(target).drain - baseline.drain === 1 && !settled,
 		)
 		const pressuredPulls = source.pulls
 		const pressuredSettled = settled
@@ -438,8 +436,7 @@ describe('sendResponse', () => {
 		const [target, baseline, source] = await targetReady.promise
 		await waitForCondition(
 			'the disconnected response is parked under pressure',
-			() =>
-				source.pulls > 2 && countResponseListeners(target).drain - baseline.drain === 1,
+			() => source.pulls > 2 && countResponseListeners(target).drain - baseline.drain === 1,
 		)
 		const pressuredPulls = source.pulls
 		const pressured = countResponseListeners(target)
@@ -449,10 +446,7 @@ describe('sendResponse', () => {
 		await closed.promise
 		request.destroy()
 		await server.close()
-		await waitForCondition(
-			'the disconnected send settles',
-			() => settled || failure !== undefined,
-		)
+		await waitForCondition('the disconnected send settles', () => settled || failure !== undefined)
 
 		expect(pressuredPulls).toBeGreaterThan(2)
 		expect(pressuredPulls).toBeLessThan(count)
