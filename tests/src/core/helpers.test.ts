@@ -10,7 +10,6 @@ import {
 	escapeRegExp,
 	joinPaths,
 	matchPath,
-	parseMethod,
 	computeSpecificity,
 	route,
 } from '../../../src/core/helpers.js'
@@ -264,26 +263,6 @@ describe('compareSpecificity', () => {
 	it('ranks a longer, more-segmented path as more specific than its prefix', () => {
 		expect(compareSpecificity('/users/:id', '/users')).toBeLessThan(0)
 		expect(compareSpecificity('/users', '/users/:id')).toBeGreaterThan(0)
-	})
-})
-
-describe('parseMethod', () => {
-	it('narrows every one of the seven registrable methods', () => {
-		expect(parseMethod('GET')).toBe('GET')
-		expect(parseMethod('POST')).toBe('POST')
-		expect(parseMethod('PUT')).toBe('PUT')
-		expect(parseMethod('PATCH')).toBe('PATCH')
-		expect(parseMethod('DELETE')).toBe('DELETE')
-		expect(parseMethod('HEAD')).toBe('HEAD')
-		expect(parseMethod('OPTIONS')).toBe('OPTIONS')
-	})
-
-	it('returns undefined for an unknown verb', () => {
-		expect(parseMethod('PURGE')).toBeUndefined()
-	})
-
-	it('is case-sensitive — a lowercase verb does not match', () => {
-		expect(parseMethod('get')).toBeUndefined()
 	})
 })
 

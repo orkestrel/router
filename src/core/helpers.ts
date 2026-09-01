@@ -339,42 +339,6 @@ export function compareSpecificity(a: string, b: string): number {
 }
 
 /**
- * Narrow a raw `request.method` string into a typed {@link Method} — total,
- * never throws.
- *
- * @remarks
- * Guarded via {@link import('./constants.js').METHODS} (the seven registrable
- * HTTP methods); any other value (an unknown verb, non-uppercase casing)
- * resolves to `undefined` rather than throwing (§14 guard totality). Pure
- * leaf shared by the `Dispatcher`'s `handle` (§5.1 unknown-verb honesty) and
- * anywhere else a raw method string needs narrowing.
- *
- * @param value - The raw `request.method` string to narrow
- * @returns The matching {@link Method}, or `undefined` when `value` is not one
- *   of the seven registrable methods
- *
- * @example
- * ```ts
- * parseMethod('GET') // 'GET'
- * parseMethod('PURGE') // undefined
- * parseMethod('get') // undefined — case-sensitive
- * ```
- */
-export function parseMethod(value: string): Method | undefined {
-	if (
-		value === 'GET' ||
-		value === 'POST' ||
-		value === 'PUT' ||
-		value === 'PATCH' ||
-		value === 'DELETE' ||
-		value === 'HEAD' ||
-		value === 'OPTIONS'
-	)
-		return value
-	return undefined
-}
-
-/**
  * Join a group prefix and a route path into one `/`-prefixed path, normalizing
  * duplicate or missing joining slashes.
  *

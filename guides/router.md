@@ -60,6 +60,7 @@ Browser and server usage appear under [Patterns](#patterns).
 
 | API             | Kind  | Summary                                                                  |
 | --------------- | ----- | ------------------------------------------------------------------------ |
+| `METHOD_LIST`   | const | The seven registrable HTTP methods as a frozen, ordered literal tuple.   |
 | `METHODS`       | const | The seven registrable HTTP methods (`GET`…`OPTIONS`) as a `ReadonlySet`. |
 | `TIER_LITERAL`  | const | The highest path-segment specificity tier (a literal segment).           |
 | `TIER_PARAM`    | const | The middle path-segment specificity tier (a `:name` param).              |
@@ -67,29 +68,44 @@ Browser and server usage appear under [Patterns](#patterns).
 
 ### Helpers
 
-| API                     | Kind     | Summary                                                                         |
-| ----------------------- | -------- | ------------------------------------------------------------------------------- |
-| `escapeRegExp`          | function | Escape regex metacharacters in a literal string.                                |
-| `canonicalizePath`      | function | Strip one trailing slash off a path pattern (except `/` and `''`).              |
-| `computeDispatchKey`    | function | Compute the canonical method-and-path key for a dispatcher route.               |
-| `compilePath`           | function | Compile a path pattern into an anchored regex + ordered param names.            |
-| `decodeParam`           | function | URL-decode one captured param, tolerating a malformed `%` escape.               |
-| `matchPath`             | function | Extract decoded params from a compiled path against a pathname, or `undefined`. |
-| `classifySegment`       | function | Classify one path segment into its specificity tier.                            |
-| `parseMethod`           | function | Narrow a raw `request.method` string into a typed `Method`, or `undefined`.     |
-| `computeSpecificity`    | function | Compute a path's per-segment specificity vector.                                |
-| `compareSpecificity`    | function | Compare two paths by specificity for a descending sort.                         |
-| `joinPaths`             | function | Join a group prefix and a route path into one `/`-prefixed path.                |
-| `route`                 | function | Identity pass-through pinning a `RouteInput`'s literal `Path` at the call site. |
-| `computeNavigationKey`  | function | Compute the canonical nested-route key used by a `Navigator`.                   |
-| `extractHashPath`       | function | Extract the `/`-prefixed pathname from a `location.hash` value.                 |
-| `resolveLocationPath`   | function | Resolve the `/`-prefixed pathname to match for the current location.            |
-| `findAnchor`            | function | Find the nearest enclosing `<a>` element a DOM event originated from.           |
-| `isEncryptedSocket`     | function | Whether a `node:http` connection socket is TLS-encrypted.                       |
-| `buildRequest`          | function | Build a fetch `Request` from a `node:http` `IncomingMessage`.                   |
-| `sendResponse`          | function | Write a fetch `Response` back to a `node:http` `ServerResponse`.                |
-| `handleListenerRequest` | function | Handle and write one dispatcher request at the Node transport boundary.         |
-| `createListener`        | function | Create a `node:http` request listener over a core `DispatcherInterface`.        |
+| API                    | Kind     | Summary                                                                         |
+| ---------------------- | -------- | ------------------------------------------------------------------------------- |
+| `escapeRegExp`         | function | Escape regex metacharacters in a literal string.                                |
+| `canonicalizePath`     | function | Strip one trailing slash off a path pattern (except `/` and `''`).              |
+| `computeDispatchKey`   | function | Compute the canonical method-and-path key for a dispatcher route.               |
+| `compilePath`          | function | Compile a path pattern into an anchored regex + ordered param names.            |
+| `decodeParam`          | function | URL-decode one captured param, tolerating a malformed `%` escape.               |
+| `matchPath`            | function | Extract decoded params from a compiled path against a pathname, or `undefined`. |
+| `classifySegment`      | function | Classify one path segment into its specificity tier.                            |
+| `computeSpecificity`   | function | Compute a path's per-segment specificity vector.                                |
+| `compareSpecificity`   | function | Compare two paths by specificity for a descending sort.                         |
+| `joinPaths`            | function | Join a group prefix and a route path into one `/`-prefixed path.                |
+| `route`                | function | Identity pass-through pinning a `RouteInput`'s literal `Path` at the call site. |
+| `computeNavigationKey` | function | Compute the canonical nested-route key used by a `Navigator`.                   |
+| `extractHashPath`      | function | Extract the `/`-prefixed pathname from a `location.hash` value.                 |
+| `resolveLocationPath`  | function | Resolve the `/`-prefixed pathname to match for the current location.            |
+| `findAnchor`           | function | Find the nearest enclosing `<a>` element a DOM event originated from.           |
+| `buildRequest`         | function | Build a fetch `Request` from a `node:http` `IncomingMessage`.                   |
+| `sendResponse`         | function | Write a fetch `Response` back to a `node:http` `ServerResponse`.                |
+
+### Parsers
+
+| API           | Kind     | Summary                                                                     |
+| ------------- | -------- | --------------------------------------------------------------------------- |
+| `parseMethod` | function | Narrow a raw `request.method` string into a typed `Method`, or `undefined`. |
+
+### Guards
+
+| API                 | Kind     | Summary                                                   |
+| ------------------- | -------- | --------------------------------------------------------- |
+| `isEncryptedSocket` | function | Whether a `node:http` connection socket is TLS-encrypted. |
+
+### Handlers
+
+| API                     | Kind     | Summary                                                                  |
+| ----------------------- | -------- | ------------------------------------------------------------------------ |
+| `handleListenerRequest` | function | Handle and write one dispatcher request at the Node transport boundary.  |
+| `createListener`        | function | Create a `node:http` request listener over a core `DispatcherInterface`. |
 
 ### Entities
 
@@ -639,6 +655,10 @@ const server = http.createServer((incoming, response) => {
   `classifySegment` (the literal-vs-param classification fix regression
   case), `computeSpecificity`, `compareSpecificity`, `joinPaths`, and `route`
   (identity pass-through, literal `Path` preservation at the call site).
+- [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) —
+  `parseMethod` narrowing every registrable verb, rejecting an unknown verb
+  and the wrong casing, and accepting exactly the verbs `METHOD_LIST`
+  declares.
 - [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) —
   `createRouter`/`createDispatcher` round-trips and factory return-type
   assertions.
@@ -653,14 +673,20 @@ const server = http.createServer((incoming, response) => {
   `computeNavigationKey`, `extractHashPath`, `resolveLocationPath` (hash + history, with/without
   `base`), and `findAnchor` (including a click on a styled child inside an
   anchor).
+- [`tests/src/server/validators.test.ts`](../tests/src/server/validators.test.ts) —
+  `isEncryptedSocket` on an encrypted socket, a plain record, and every
+  off-shape value.
 - [`tests/src/server/helpers.test.ts`](../tests/src/server/helpers.test.ts) —
-  `isEncryptedSocket`, `buildRequest` fidelity (method, URL from `Host`,
-  headers including multi-value and `set-cookie`, body streaming, the
-  incomplete-request and complete-request response-side disconnect aborts,
-  plus normal-response signal/listener cleanup), `sendResponse` (status,
-  headers including `set-cookie`, streamed and empty bodies, a destroyed
-  target mid-stream), `handleListenerRequest`, and `createListener` end-to-end
-  round-trips over real `node:http` sockets.
+  `buildRequest` fidelity (method, URL from `Host`, headers including
+  multi-value and `set-cookie`, body streaming, the incomplete-request and
+  complete-request response-side disconnect aborts, plus normal-response
+  signal/listener cleanup) and `sendResponse` (status, headers including
+  `set-cookie`, streamed and empty bodies, a destroyed target mid-stream)
+  over real `node:http` sockets.
+- [`tests/src/server/handlers.test.ts`](../tests/src/server/handlers.test.ts) —
+  `handleListenerRequest` at the transport boundary and `createListener`
+  end-to-end round-trips (matched, 404, 405, auto-HEAD, auto-OPTIONS, a
+  handler throw, and per-request state) over real `node:http` sockets.
 
 ## See also
 

@@ -5,15 +5,46 @@
 // ============================================================================
 
 /**
+ * Lists the HTTP methods a {@link import('./types.js').Dispatcher} registers
+ * routes under, in canonical order — the single source the
+ * {@link import('./types.js').Method} type, {@link METHODS}, and
+ * `parseMethod` are all derived from.
+ *
+ * @remarks
+ * A frozen tuple of the seven verbs: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`,
+ * `HEAD`, `OPTIONS`. Adding a verb here widens the `Method` type, the
+ * {@link METHODS} membership set, and the `parseMethod` narrowing together, so
+ * the method set cannot drift between them. Prefer {@link METHODS} for a
+ * membership test; use this tuple where order or literal typing matters.
+ *
+ * @example
+ * ```ts
+ * METHOD_LIST[0] // 'GET'
+ * METHOD_LIST.includes('GET') // true
+ * ```
+ */
+export const METHOD_LIST = Object.freeze([
+	'GET',
+	'POST',
+	'PUT',
+	'PATCH',
+	'DELETE',
+	'HEAD',
+	'OPTIONS',
+] as const)
+
+/**
  * The complete set of HTTP methods a {@link import('./types.js').Dispatcher}
  * registers routes under — backs the registration guard (`add` rejects any
  * `method` outside this set) and the auto-`OPTIONS` `Allow` derivation.
  *
  * @remarks
- * A `ReadonlySet` of the seven {@link import('./types.js').Method} literals:
- * `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`. `HEAD` is
- * included even though it is never required at registration (a `GET` route
- * auto-answers `HEAD`) — it is still a valid method to register explicitly.
+ * A `ReadonlySet` built from {@link METHOD_LIST}, so it carries exactly the
+ * seven {@link import('./types.js').Method} literals: `GET`, `POST`, `PUT`,
+ * `PATCH`, `DELETE`, `HEAD`, `OPTIONS`. `HEAD` is included even though it is
+ * never required at registration (a `GET` route auto-answers `HEAD`) — it is
+ * still a valid method to register explicitly. The element type stays `string`
+ * so a raw, unnarrowed `request.method` can be tested directly.
  *
  * @example
  * ```ts
@@ -21,9 +52,7 @@
  * METHODS.has('TRACE') // false
  * ```
  */
-export const METHODS: ReadonlySet<string> = Object.freeze(
-	new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']),
-)
+export const METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
 
 /**
  * Specificity tier for a **literal** path segment (`/users`) — the highest

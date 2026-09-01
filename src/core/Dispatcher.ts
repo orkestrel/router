@@ -16,7 +16,8 @@ import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
 import { isFunction, isString } from '@orkestrel/contract'
 import { METHODS } from './constants.js'
-import { computeDispatchKey, parseMethod } from './helpers.js'
+import { computeDispatchKey } from './helpers.js'
+import { parseMethod } from './parsers.js'
 import { Router } from './Router.js'
 import { DispatchGroup } from './DispatchGroup.js'
 
@@ -58,7 +59,7 @@ import { DispatchGroup } from './DispatchGroup.js'
  * ```
  */
 export class Dispatcher<TState = undefined> implements DispatcherInterface<TState> {
-	readonly router: RouterInterface<RouteRecord<TState>>
+	readonly #router: RouterInterface<RouteRecord<TState>>
 	readonly #emitter: Emitter<DispatcherEventMap>
 	readonly #unmatched: DispatcherOptions<TState>['unmatched']
 	readonly #unmethoded: DispatcherOptions<TState>['unmethoded']
@@ -67,7 +68,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		const sensitive = options?.sensitive
 		const on = options?.on
 		const error = options?.error
-		this.router = new Router<RouteRecord<TState>>({
+		this.#router = new Router<RouteRecord<TState>>({
 			...(sensitive === undefined ? {} : { sensitive }),
 			key: computeDispatchKey,
 		})
@@ -78,6 +79,10 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		this.#unmatched = options?.unmatched
 		this.#unmethoded = options?.unmethoded
 		if (options?.routes !== undefined) this.add(options.routes)
+	}
+
+	get router(): RouterInterface<RouteRecord<TState>> {
+		return this.#router
 	}
 
 	get emitter(): EmitterInterface<DispatcherEventMap> {
@@ -96,10 +101,10 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	}
 
 	match(method: Method, pathname: string): DispatchResult<TState> {
-		const hit = this.router.match(pathname, (meta) => meta.method === method)
+		const hit = this.#router.match(pathname, (meta) => meta.method === method)
 		if (hit !== undefined) return { status: 'matched', match: hit }
 		if (method === 'HEAD') {
-			const getHit = this.router.match(pathname, (meta) => meta.method === 'GET')
+			const getHit = this.#router.match(pathname, (meta) => meta.method === 'GET')
 			if (getHit !== undefined) return { status: 'matched', match: getHit }
 		}
 		const allow = this.#allow(pathname)
@@ -149,7 +154,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 				`a route method must be one of ${[...METHODS].join(', ')}, got ${JSON.stringify(input.method)}`,
 			)
 		const name = input.name
-		this.router.add({
+		this.#router.add({
 			path: input.path,
 			...(name === undefined ? {} : { name }),
 			meta: {
@@ -163,7 +168,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	// The derived `Allow` set for a pathname — every distinct registered method, with `HEAD`
 	// added whenever `GET` is present and `HEAD` is not explicitly registered (§5.1).
 	#allow(pathname: string): readonly Method[] {
-		const entries: ReadonlyArray<RouteEntry<RouteRecord<TState>>> = this.router.entries(pathname)
+		const entries: ReadonlyArray<RouteEntry<RouteRecord<TState>>> = this.#router.entries(pathname)
 		const methods = new Set<Method>()
 		for (const entry of entries) methods.add(entry.meta.method)
 		if (methods.has('GET')) methods.add('HEAD')

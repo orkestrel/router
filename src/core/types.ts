@@ -29,6 +29,7 @@
 // ============================================================================
 
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
+import type { METHOD_LIST } from './constants.js'
 
 /**
  * The identifier START characters an identifier-grammar param name may
@@ -372,14 +373,19 @@ export interface GroupInterface<Meta> {
 
 /**
  * The seven HTTP methods a {@link DispatcherInterface} dimensions dispatch
- * over — the value-level counterpart is {@link import('./constants.js').METHODS}.
+ * over — derived from {@link import('./constants.js').METHOD_LIST}, whose
+ * membership counterpart is {@link import('./constants.js').METHODS}.
  *
  * @remarks
- * `HEAD` is a valid explicit registration even though a `GET` route already
- * auto-answers `HEAD` (§5.1 dispatch semantics) — an explicit `HEAD` handler
- * always takes precedence over the derived one.
+ * Resolves to `'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' |
+ * 'OPTIONS'`. Deriving the union from the constant keeps one home for the
+ * method set: a verb added there widens this type, the membership set, and the
+ * `parseMethod` narrowing together. `HEAD` is a valid explicit registration
+ * even though a `GET` route already auto-answers `HEAD` (§5.1 dispatch
+ * semantics) — an explicit `HEAD` handler always takes precedence over the
+ * derived one.
  */
-export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+export type Method = (typeof METHOD_LIST)[number]
 
 /**
  * The ambient context a {@link RouteHandler} receives alongside the raw
