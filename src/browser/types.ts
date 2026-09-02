@@ -21,7 +21,7 @@ import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkes
 import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
 
 /**
- * The `Navigator`'s event map (AGENTS §13) — the single `navigate` signal a
+ * Represents the `Navigator`'s event map (AGENTS §13) — the single `navigate` signal a
  * consumer observes.
  *
  * @typeParam Meta - The opaque per-route payload the resolved match carries
@@ -37,7 +37,7 @@ export type NavigatorEventMap<Meta> = {
 }
 
 /**
- * Options for `createNavigator` — the `routes` to dispatch between, the
+ * Represents the options for `createNavigator` — the `routes` to dispatch between, the
  * navigation substrate, the optional guard hook, and the AGENTS §13 emitter
  * wiring.
  *
@@ -89,7 +89,7 @@ export interface NavigatorOptions<Meta> {
 }
 
 /**
- * The headless History/hash navigation entity contract (the §4.5 behavioral-
+ * Represents the headless History/hash navigation entity contract (the §4.5 behavioral-
  * interface role for the one-class-per-file `Navigator`). Composes a core
  * `Router<RouteEntry<Meta>>`, resolves the current location on `start()` and
  * on every subsequent navigation event, tracks `active`, and emits

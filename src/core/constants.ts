@@ -34,7 +34,7 @@ export const METHOD_LIST = Object.freeze([
 ] as const)
 
 /**
- * The complete set of HTTP methods a {@link import('./types.js').Dispatcher}
+ * Holds the complete set of HTTP methods a {@link import('./types.js').Dispatcher}
  * registers routes under — backs the registration guard (`add` rejects any
  * `method` outside this set) and the auto-`OPTIONS` `Allow` derivation.
  *
@@ -55,7 +55,7 @@ export const METHOD_LIST = Object.freeze([
 export const METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
 
 /**
- * Specificity tier for a **literal** path segment (`/users`) — the highest
+ * Names the specificity tier for a **literal** path segment (`/users`) — the highest
  * tier, always outranking a param or wildcard segment at the same position.
  *
  * @remarks
@@ -70,7 +70,7 @@ export const METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD
 export const TIER_LITERAL = 2
 
 /**
- * Specificity tier for a **param** path segment (`:name`) — ranks below a
+ * Names the specificity tier for a **param** path segment (`:name`) — ranks below a
  * literal segment and above a wildcard segment at the same position.
  *
  * @remarks
@@ -85,7 +85,7 @@ export const TIER_LITERAL = 2
 export const TIER_PARAM = 1
 
 /**
- * Specificity tier for a **wildcard** path segment (`*name`) — the lowest
+ * Names the specificity tier for a **wildcard** path segment (`*name`) — the lowest
  * tier; a wildcard only ever wins against another wildcard shape (an
  * equal-specificity tie resolved by registration order).
  *

@@ -8,7 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 /**
- * Options for `buildRequest` — URL origin and response-side disconnect tracking.
+ * Represents the options for `buildRequest` — URL origin and response-side disconnect tracking.
  *
  * @remarks
  * - `origin` — an explicit scheme + host to build the request URL against
@@ -24,7 +24,7 @@ export interface RequestOptions {
 }
 
 /**
- * A `node:http` request handler — the function `createListener` returns,
+ * Represents a `node:http` request handler — the function `createListener` returns,
  * matching `http.createServer`'s handler signature.
  *
  * @remarks

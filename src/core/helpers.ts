@@ -10,7 +10,7 @@ import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 // browser navigator.
 
 /**
- * Escape every regex metacharacter in a literal string so it can be embedded
+ * Escapes every regex metacharacter in a literal string so it can be embedded
  * inside a larger `RegExp` source without being interpreted as syntax.
  *
  * @remarks
@@ -34,7 +34,7 @@ export function escapeRegExp(value: string): string {
 }
 
 /**
- * Canonicalize a route path for REGISTRY IDENTITY — strip a single trailing
+ * Canonicalizes a route path for REGISTRY IDENTITY — strips a single trailing
  * slash, except the root `/` (and the empty pattern). The trailing-slash fold
  * {@link compilePath} normalizes a pattern through, so identity agrees with the
  * matcher.
@@ -62,7 +62,7 @@ export function canonicalizePath(path: string): string {
 }
 
 /**
- * Compute the registry key for a method-dimensioned dispatcher route.
+ * Computes the registry key for a method-dimensioned dispatcher route.
  *
  * @remarks
  * Combines the route record's HTTP method with the outer entry's canonical
@@ -82,7 +82,7 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
 }
 
 /**
- * Compile a route path pattern into an anchored regex and its ordered param
+ * Compiles a route path pattern into an anchored regex and its ordered param
  * names.
  *
  * @remarks
@@ -163,7 +163,7 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 }
 
 /**
- * URL-decode one captured param value, tolerating a malformed percent-escape —
+ * URL-decodes one captured param value, tolerating a malformed percent-escape —
  * the decode {@link matchPath} applies to each captured group.
  *
  * @remarks
@@ -192,7 +192,7 @@ export function decodeParam(value: string): string {
 }
 
 /**
- * Extract the URL-decoded params a compiled path captures from a concrete
+ * Extracts the URL-decoded params a compiled path captures from a concrete
  * pathname, or `undefined` when the pathname does not match.
  *
  * @remarks
@@ -230,7 +230,7 @@ export function matchPath(
 }
 
 /**
- * Classify one path segment into its specificity TIER — the SAME syntax
+ * Classifies one path segment into its specificity TIER — the SAME syntax
  * {@link compilePath} rewrites: a syntactically valid `:name` head is a PARAM
  * segment, a final `*name` is a WILDCARD segment, everything else (including a
  * literal segment that merely CONTAINS a `:` mid-string, e.g. `a:b`) is a
@@ -265,7 +265,7 @@ export function classifySegment(segment: string, isFinal: boolean): number {
 }
 
 /**
- * Compute a route path's SPECIFICITY VECTOR — the per-segment type ranking
+ * Computes a route path's SPECIFICITY VECTOR — the per-segment type ranking
  * that breaks a tie when several registered routes match the same concrete
  * pathname.
  *
@@ -300,7 +300,7 @@ export function computeSpecificity(path: string): readonly number[] {
 }
 
 /**
- * Compare two route paths by SPECIFICITY — the comparator that picks the
+ * Compares two route paths by SPECIFICITY — the comparator that picks the
  * most-specific matching route (literal-over-param-over-wildcard,
  * registration-order-independent).
  *
@@ -339,7 +339,7 @@ export function compareSpecificity(a: string, b: string): number {
 }
 
 /**
- * Join a group prefix and a route path into one `/`-prefixed path, normalizing
+ * Joins a group prefix and a route path into one `/`-prefixed path, normalizing
  * duplicate or missing joining slashes.
  *
  * @remarks
@@ -373,7 +373,7 @@ export function joinPaths(prefix: string, path: string): string {
 }
 
 /**
- * Identity pass-through for a {@link RouteInput} that pins its `Path` generic
+ * Provides an identity pass-through for a {@link RouteInput} that pins its `Path` generic
  * to the LITERAL registration-site string, so `context.params` types
  * correctly through {@link PathParams} without an explicit type argument.
  *

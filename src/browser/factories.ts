@@ -2,7 +2,7 @@ import type { NavigatorInterface, NavigatorOptions } from './types.js'
 import { Navigator } from './Navigator.js'
 
 /**
- * Create a {@link NavigatorInterface} — the headless History/hash navigation
+ * Creates a {@link NavigatorInterface} — the headless History/hash navigation
  * entity composing one core `Router<RouteEntry<Meta>>`.
  *
  * @remarks

@@ -32,7 +32,7 @@ import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkes
 import type { METHOD_LIST } from './constants.js'
 
 /**
- * The identifier START characters an identifier-grammar param name may
+ * Names the identifier START characters an identifier-grammar param name may
  * begin with — mirrors the runtime classifier's `[A-Za-z_]` head class
  * (`classifySegment` / `compilePath`, `helpers.ts`).
  */
@@ -92,7 +92,7 @@ export type IdentifierStartChar =
 	| '_'
 
 /**
- * The identifier CONTINUATION characters after the first — mirrors the
+ * Names the identifier CONTINUATION characters after the first — mirrors the
  * runtime classifier's `[A-Za-z0-9_]*` tail class.
  */
 export type IdentifierChar =
@@ -152,7 +152,7 @@ export type SegmentParam<Segment extends string> = Segment extends `:${infer Res
 		: unknown
 
 /**
- * Recursive, unflattened param extraction for {@link PathParams} — walks a
+ * Performs recursive, unflattened param extraction for {@link PathParams} — walks a
  * path pattern segment by segment (split on `/`), extracting each segment's
  * {@link SegmentParam} contribution and intersecting the rest.
  *
@@ -207,7 +207,7 @@ export type PathParams<Path extends string> = {
 }
 
 /**
- * A compiled route path — the anchored regex plus its ordered param names.
+ * Represents a compiled route path — the anchored regex plus its ordered param names.
  *
  * @remarks
  * The once-per-path compile output of `compilePath` (U1 `helpers.ts`):
@@ -223,7 +223,7 @@ export interface CompiledPath {
 }
 
 /**
- * One registered route in a {@link RouterInterface} — the `path` pattern plus
+ * Represents one registered route in a {@link RouterInterface} — the `path` pattern plus
  * the opaque `meta` payload to return on a match, with an optional `name`.
  *
  * @typeParam Meta - The payload to carry on a match (opaque to the engine —
@@ -247,7 +247,7 @@ export interface RouteEntry<Meta> {
 }
 
 /**
- * One matched route — the winning entry's PATTERN, decoded params, `meta`
+ * Represents one matched route — the winning entry's PATTERN, decoded params, `meta`
  * payload, and optional `name`.
  *
  * @typeParam Meta - The payload the winning entry carries
@@ -268,7 +268,7 @@ export interface RouterMatch<Meta> {
 }
 
 /**
- * The native-override seam — a predicate deciding whether an entry's `meta`
+ * Represents the native-override seam — a predicate deciding whether an entry's `meta`
  * ANSWERS a given `match` call, beyond path matching.
  *
  * @typeParam Meta - The entry payload the predicate reads
@@ -284,7 +284,7 @@ export interface RouterMatch<Meta> {
 export type AnswerHandler<Meta> = (meta: Meta) => boolean
 
 /**
- * Options for `createRouter` — an optional initial entry set, the case-
+ * Represents the options for `createRouter` — an optional initial entry set, the case-
  * sensitivity toggle, and the dedup identity function.
  *
  * @typeParam Meta - The entry payload type
@@ -309,7 +309,7 @@ export interface RouterOptions<Meta> {
 }
 
 /**
- * The path-matching + registry engine contract (the §4.5 behavioral-interface
+ * Represents the path-matching + registry engine contract (the §4.5 behavioral-interface
  * role for the one-class-per-file `Router`). Registers `{ path, meta, name? }`
  * entries (compiling each path once) and resolves a concrete pathname to the
  * MOST SPECIFIC matching entry — a literal segment beats a param beats a
@@ -350,7 +350,7 @@ export interface RouterInterface<Meta> {
 }
 
 /**
- * A prefix-scoped registration handle over a {@link RouterInterface} — pure
+ * Represents a prefix-scoped registration handle over a {@link RouterInterface} — pure
  * string composition (§4.2.2), no independent state or storage.
  *
  * @typeParam Meta - The entry payload type, matching the owning router
@@ -372,7 +372,7 @@ export interface GroupInterface<Meta> {
 }
 
 /**
- * The seven HTTP methods a {@link DispatcherInterface} dimensions dispatch
+ * Names the seven HTTP methods a {@link DispatcherInterface} dimensions dispatch
  * over — derived from {@link import('./constants.js').METHOD_LIST}, whose
  * membership counterpart is {@link import('./constants.js').METHODS}.
  *
@@ -388,7 +388,7 @@ export interface GroupInterface<Meta> {
 export type Method = (typeof METHOD_LIST)[number]
 
 /**
- * The ambient context a {@link RouteHandler} receives alongside the raw
+ * Represents the ambient context a {@link RouteHandler} receives alongside the raw
  * `Request` — decoded params, the winning pattern, the parsed URL, and the
  * consumer's opaque per-request state.
  *
@@ -413,8 +413,8 @@ export interface RouteContext<Path extends string = string, TState = undefined> 
 }
 
 /**
- * A route handler — receives the raw fetch `Request` plus its typed
- * {@link RouteContext} and returns (or resolves) a fetch `Response`.
+ * Receives the raw fetch `Request` plus its typed {@link RouteContext} and returns (or resolves)
+ * a fetch `Response`.
  *
  * @typeParam Path - The route path pattern the handler is registered under
  * @typeParam TState - The consumer's opaque per-request state type
@@ -430,7 +430,7 @@ export type RouteHandler<Path extends string = string, TState = undefined> = (
 ) => Response | Promise<Response>
 
 /**
- * One route registration input for {@link DispatcherInterface.add} — the
+ * Represents one route registration input for {@link DispatcherInterface.add} — the
  * method-dimensioned counterpart of {@link RouteEntry}.
  *
  * @typeParam Path - The route path pattern literal (drives the typed
@@ -452,7 +452,7 @@ export interface RouteInput<Path extends string = string, TState = undefined> {
 }
 
 /**
- * The `meta` payload a {@link DispatcherInterface} stores in its underlying
+ * Represents the `meta` payload a {@link DispatcherInterface} stores in its underlying
  * `Router` — what {@link RouterInterface.match} returns as
  * {@link RouterMatch.meta} on a dispatch hit.
  *
@@ -470,7 +470,7 @@ export interface RouteRecord<TState> {
 }
 
 /**
- * The outcome of {@link DispatcherInterface.match} — a discriminated union
+ * Represents the outcome of {@link DispatcherInterface.match} — a discriminated union
  * over the three dispatch tiers: a full hit, a path-matches-but-method-
  * doesn't (405 territory), or nothing matched at all (404 territory).
  *
@@ -490,7 +490,7 @@ export type DispatchResult<TState> =
 	| { readonly status: 'unmatched' }
 
 /**
- * The `Dispatcher`'s event map (AGENTS §13) — the two dispatch-outcome
+ * Represents the `Dispatcher`'s event map (AGENTS §13) — the two dispatch-outcome
  * signals a consumer can observe alongside the return value of `handle`.
  *
  * @remarks
@@ -511,7 +511,7 @@ export type DispatcherEventMap = {
 }
 
 /**
- * Options for `createDispatcher` — initial routes, case sensitivity, the two
+ * Represents the options for `createDispatcher` — initial routes, case sensitivity, the two
  * default-responder overrides, and the AGENTS §13 emitter wiring.
  *
  * @typeParam TState - The consumer's opaque per-request state type
@@ -539,7 +539,7 @@ export interface DispatcherOptions<TState> {
 }
 
 /**
- * The fetch-standard, method-dimensioned dispatch entity contract (the §4.5
+ * Represents the fetch-standard, method-dimensioned dispatch entity contract (the §4.5
  * behavioral-interface role for the one-class-per-file `Dispatcher`). Layers
  * HTTP method dispatch and web-standard `Request`/`Response` handling over a
  * single internal `Router<RouteRecord<TState>>`.
@@ -581,7 +581,7 @@ export interface DispatcherInterface<TState = undefined> {
 }
 
 /**
- * A prefix-scoped registration handle over a {@link DispatcherInterface} —
+ * Represents a prefix-scoped registration handle over a {@link DispatcherInterface} —
  * the method-dimensioned counterpart of {@link GroupInterface}.
  *
  * @typeParam TState - The consumer's opaque per-request state type, matching

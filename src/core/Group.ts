@@ -2,7 +2,7 @@ import type { GroupInterface, RouteEntry, RouterInterface } from './types.js'
 import { joinPaths } from './helpers.js'
 
 /**
- * A prefix-scoped registration handle over a {@link import('./Router.js').Router} —
+ * Represents a prefix-scoped registration handle over a {@link import('./Router.js').Router} —
  * pure string composition (AGENTS §4.2.2), no independent state or storage.
  *
  * @typeParam Meta - The entry payload type, matching the owning router

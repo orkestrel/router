@@ -11,7 +11,7 @@ import { createAbort } from '@orkestrel/abort'
 import { isEncryptedSocket } from './validators.js'
 
 /**
- * Build a fetch-standard `Request` from a `node:http` `IncomingMessage` — the
+ * Builds a fetch-standard `Request` from a `node:http` `IncomingMessage` — the
  * server-adapter half of the §5.3 conversion seam.
  *
  * @remarks
@@ -100,7 +100,7 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
 }
 
 /**
- * Write a fetch-standard `Response` back to a `node:http` `ServerResponse` —
+ * Writes a fetch-standard `Response` back to a `node:http` `ServerResponse` —
  * the reverse half of the §5.3 conversion seam.
  *
  * @remarks

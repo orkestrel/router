@@ -8,7 +8,7 @@ import { Dispatcher } from './Dispatcher.js'
 import { Router } from './Router.js'
 
 /**
- * Create a {@link RouterInterface} — the pure path-matching + registry engine
+ * Creates a {@link RouterInterface} — the pure path-matching + registry engine
  * shared by the browser `Navigator` and the core `Dispatcher`.
  *
  * @remarks
@@ -35,7 +35,7 @@ export function createRouter<Meta>(options?: RouterOptions<Meta>): RouterInterfa
 }
 
 /**
- * Create a {@link DispatcherInterface} — the fetch-standard, method-
+ * Creates a {@link DispatcherInterface} — the fetch-standard, method-
  * dimensioned dispatch entity over one internal `Router<RouteRecord<TState>>`.
  *
  * @remarks

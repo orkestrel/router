@@ -12,7 +12,7 @@ import { compareSpecificity, compilePath, matchPath } from './helpers.js'
 import { Group } from './Group.js'
 
 /**
- * The path-matching + registry engine — registers `{ path, meta, name? }`
+ * Represents the path-matching + registry engine — registers `{ path, meta, name? }`
  * entries (compiling each path once) and resolves a concrete pathname to the
  * MOST SPECIFIC matching entry. The shared machine both the `Navigator`
  * (browser) and the `Dispatcher` (core, method-dimensioned) compose.

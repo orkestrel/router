@@ -9,7 +9,7 @@ import { createRouter, joinPaths } from '@src/core'
 import { computeNavigationKey, findAnchor, resolveLocationPath } from './helpers.js'
 
 /**
- * The headless History/hash navigation entity — composes one core
+ * Represents the headless History/hash navigation entity — composes one core
  * `Router<RouteEntry<Meta>>`, resolving the current location on `start()` and
  * every subsequent navigation event, tracking `active`, and emitting
  * `navigate` through the core {@link Emitter} (AGENTS §13). No `render` /

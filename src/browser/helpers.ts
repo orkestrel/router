@@ -8,7 +8,7 @@ import type { RouteEntry } from '@src/core'
 import { canonicalizePath } from '@src/core'
 
 /**
- * Compute the registry key for a browser navigation route.
+ * Computes the registry key for a browser navigation route.
  *
  * @remarks
  * Projects the nested route's path through the core engine's canonical
@@ -28,7 +28,7 @@ export function computeNavigationKey(entry: RouteEntry<{ readonly path: string }
 }
 
 /**
- * Extract the `/`-prefixed pathname from a `location.hash` value — strip the
+ * Extracts the `/`-prefixed pathname from a `location.hash` value — strips the
  * leading `#` (keeping the route's own leading `/`) and any `?query` suffix.
  *
  * @remarks
@@ -57,7 +57,7 @@ export function extractHashPath(hash: string): string {
 }
 
 /**
- * Resolve the `/`-prefixed pathname to match for the CURRENT location, in
+ * Resolves the `/`-prefixed pathname to match for the CURRENT location, in
  * either navigation mode — the one seam `extractHashPath` (hash mode) and
  * history-mode base-stripping share.
  *
@@ -100,7 +100,7 @@ export function resolveLocationPath(
 }
 
 /**
- * Find the nearest enclosing `<a>` element a DOM event originated from, by
+ * Finds the nearest enclosing `<a>` element a DOM event originated from, by
  * walking its composed path — the pure lookup behind history-mode link
  * interception.
  *

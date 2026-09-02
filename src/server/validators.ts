@@ -7,13 +7,13 @@
 import { isRecord } from '@orkestrel/contract'
 
 /**
- * Determine whether a `node:http` connection socket is TLS-encrypted — the
+ * Determines whether a `node:http` connection socket is TLS-encrypted — the
  * total, never-throwing narrow (AGENTS §14) `buildRequest` uses to pick the
  * derived scheme (`https` vs `http`).
  *
  * @param socket - The connection value to test (typically `message.socket`)
- * @returns `true` when `socket` carries a truthy `encrypted` property (a
- *   `tls.TLSSocket`), `false` for anything else (including `undefined`)
+ * @returns True if `socket` carries a truthy `encrypted` property (a
+ *   `tls.TLSSocket`); false otherwise, including for `undefined`
  *
  * @example
  * ```ts

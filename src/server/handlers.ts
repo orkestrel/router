@@ -11,7 +11,7 @@ import type { ListenerFunction, StateFunction } from './types.js'
 import { buildRequest, sendResponse } from './helpers.js'
 
 /**
- * Handle one `node:http` request through a core dispatcher and write its
+ * Handles one `node:http` request through a core dispatcher and writes its
  * fetch-standard response.
  *
  * @remarks
@@ -55,10 +55,10 @@ export async function handleListenerRequest<TState>(
 }
 
 /**
- * Create a `node:http` request listener over a core {@link DispatcherInterface} —
- * the whole server face's entry point (§5.3): convert the incoming message to
- * a fetch `Request`, hand it to the dispatcher with the consumer's per-request
- * `state`, and write the resulting `Response` back.
+ * Creates a `node:http` request listener over a core {@link DispatcherInterface} —
+ * the whole server face's entry point (§5.3): converts the incoming message to
+ * a fetch `Request`, hands it to the dispatcher with the consumer's per-request
+ * `state`, and writes the resulting `Response` back.
  *
  * @remarks
  * A rejected `dispatcher.handle` (a route handler throw — the dispatcher

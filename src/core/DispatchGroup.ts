@@ -2,7 +2,7 @@ import type { DispatchGroupInterface, DispatcherInterface, RouteInput } from './
 import { joinPaths } from './helpers.js'
 
 /**
- * A prefix-scoped registration handle over a
+ * Represents a prefix-scoped registration handle over a
  * {@link import('./Dispatcher.js').Dispatcher} — the method-dimensioned
  * counterpart of `Group` (`Group.ts`).
  *
