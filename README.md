@@ -50,7 +50,7 @@ adds `createNavigator` for headless History/hash navigation; the `./server` entr
 
 For the full surface — the core `Router`, the `Dispatcher`, the browser `Navigator`, and the
 `node:http` server adapter — see
-[`guides/src/router.md`](guides/src/router.md).
+[`guides/router.md`](guides/router.md).
 
 ## Package
 
