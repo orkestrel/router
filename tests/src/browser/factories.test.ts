@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNavigator, Navigator } from '../../../src/browser/index.js'
 
-// §16 mirror of `src/browser/factories.ts` — `createNavigator` returns a working
+// The test mirror of `src/browser/factories.ts` — `createNavigator` returns a working
 // `Navigator` instance.
 
 describe('createNavigator', () => {

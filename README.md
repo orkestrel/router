@@ -1,9 +1,12 @@
 # @orkestrel/router
 
-A typed request router for the `@orkestrel` line — the first `@orkestrel`
-package to ship both server and browser environments alongside its shared
-core. Built to sit beside `@orkestrel/contract` (validation) and
-`@orkestrel/emitter` (observable lifecycle), reusing both as it takes shape.
+A typed request router for the `@orkestrel` line. One matching engine compiles
+route patterns, extracts URL-decoded params, and resolves the most specific
+match; a `Dispatcher` layers fetch-standard, method-dimensioned dispatch over
+it; a headless `Navigator` drives History or hash navigation in the browser;
+and a `node:http` adapter converts messages in both directions. Built on
+`@orkestrel/contract` for validation, `@orkestrel/emitter` for the observable
+surface, and `@orkestrel/abort` for cancellation.
 
 ## Install
 
@@ -13,8 +16,8 @@ npm install @orkestrel/router
 
 ## Requirements
 
-- Node.js >= 24
-- ESM-only (no CommonJS build)
+- Node.js >= 22.12.0
+- ESM and CommonJS for the core and `./server` entries; the `./browser` entry is ESM only.
 - Server and browser environments both supported
 
 ## Usage
@@ -41,8 +44,8 @@ const response = await dispatcher.handle(new Request('http://x/users/7'), { user
 `Router` is the shared registry-and-match engine — literal-over-param-over-wildcard
 precedence, trailing-slash folding, and tolerant percent-decoding — that both `Dispatcher`
 (fetch-standard, method-dimensioned) and the browser `Navigator` compose. Path params are
-inferred at the type level from the literal pattern via `PathParams`, and `route()` pins a
-`RouteInput`'s path so literal inference survives across call sites. The `./browser` entry
+inferred at the type level from the literal pattern through `PathParams`, and `defineRoute()`
+pins a `RouteInput`'s path so literal inference survives across call sites. The `./browser` entry
 adds `createNavigator` for headless History/hash navigation; the `./server` entry adds
 `buildRequest` / `sendResponse` / `createListener` for `node:http`.
 
@@ -54,7 +57,7 @@ For the full surface — the core `Router`, the `Dispatcher`, the browser `Navig
 
 ## Package
 
-Published as three environment-scoped entry points per the `exports` field in
+Published as environment-scoped entry points per the `exports` field in
 `package.json`: a shared core, `./browser`, and `./server`.
 
 ## License

@@ -1,6 +1,7 @@
 import type { NavigatorInterface, NavigatorOptions } from '../../../src/browser/types.js'
 import type { RouterMatch } from '../../../src/core/types.js'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
+import { ContractError } from '@orkestrel/contract'
 import { createNavigator, Navigator } from '../../../src/browser/index.js'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import {
@@ -12,9 +13,9 @@ import {
 	settleHistory,
 } from '../../setupBrowser.js'
 
-// §16 mirror of `src/browser/Navigator.ts` — pinned in a real Chromium (the
+// The test mirror of `src/browser/Navigator.ts` — pinned in a real Chromium (the
 // `src:browser` project) against real `location.hash` / `history` + real DOM
-// events (§16.2, no mocks). Covers hash mode, history mode (base stripping +
+// events (no mocks). Covers hash mode, history mode (base stripping +
 // link interception), the guard matrix (sync veto, async allow/veto, supersede,
 // throw), the `navigate` event payload, lifecycle idempotence, and the pure
 // `match` lookup.
@@ -24,7 +25,7 @@ interface PageMeta {
 }
 
 // Every navigator started in a test is tracked and destroyed after it, so no
-// `hashchange`/`popstate`/click listener leaks across cases (the §16.1 teardown
+// `hashchange`/`popstate`/click listener leaks across cases (the shared teardown
 // shape). `location.hash` and `history` are reset before each case.
 const navigators: Array<NavigatorInterface<PageMeta>> = []
 
@@ -637,9 +638,9 @@ describe('Navigator — match(path) is a pure lookup', () => {
 })
 
 describe('Navigator — construction guards', () => {
-	it('throws TypeError when guard is not a function', () => {
+	it('throws a ContractError coded `literal` when guard is not a function', () => {
 		// A malformed guard, arriving the way it would from an untyped boundary (parsed JSON) —
-		// `JSON.parse` returns `any`, so assigning it to the declared guard type below needs no
+		// `JSON.parse` returns `any`, so assigning it to the following declared guard type needs no
 		// `as` (the value is genuinely a runtime string).
 		const malformedGuard: NonNullable<NavigatorOptions<PageMeta>['guard']> = JSON.parse('"nope"')
 		expect(
@@ -648,10 +649,17 @@ describe('Navigator — construction guards', () => {
 					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
 					guard: malformedGuard,
 				}),
-		).toThrow(TypeError)
+		).toThrow(ContractError)
+		expect(
+			() =>
+				new Navigator<PageMeta>({
+					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+					guard: malformedGuard,
+				}),
+		).toThrow(expect.objectContaining({ code: 'literal' }))
 	})
 
-	it('throws TypeError when fallback is not a string', () => {
+	it('throws a ContractError coded `literal` when fallback is not a string', () => {
 		// A fallback sourced from an untyped boundary (parsed JSON) — assigned to the declared
 		// `string` type with no `as` (the value is genuinely a runtime number).
 		const malformedFallback: string = JSON.parse('7')
@@ -661,10 +669,17 @@ describe('Navigator — construction guards', () => {
 					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
 					fallback: malformedFallback,
 				}),
-		).toThrow(TypeError)
+		).toThrow(ContractError)
+		expect(
+			() =>
+				new Navigator<PageMeta>({
+					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+					fallback: malformedFallback,
+				}),
+		).toThrow(expect.objectContaining({ code: 'literal' }))
 	})
 
-	it('throws TypeError when base is not a string', () => {
+	it('throws a ContractError coded `literal` when base is not a string', () => {
 		// A base sourced from an untyped boundary (parsed JSON) — assigned to the declared
 		// `string` type with no `as` (the value is genuinely a runtime number).
 		const malformedBase: string = JSON.parse('7')
@@ -674,14 +689,50 @@ describe('Navigator — construction guards', () => {
 					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
 					base: malformedBase,
 				}),
-		).toThrow(TypeError)
+		).toThrow(ContractError)
+		expect(
+			() =>
+				new Navigator<PageMeta>({
+					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+					base: malformedBase,
+				}),
+		).toThrow(expect.objectContaining({ code: 'literal' }))
 	})
 
-	it('throws TypeError from the underlying Router when a route path is malformed', () => {
+	it('throws a ContractError coded `pattern` from the underlying Router when a route path is malformed', () => {
 		expect(
 			() =>
 				new Navigator<PageMeta>({ routes: [{ path: 'no-leading-slash', meta: { page: 'x' } }] }),
-		).toThrow(TypeError)
+		).toThrow(ContractError)
+		expect(
+			() =>
+				new Navigator<PageMeta>({ routes: [{ path: 'no-leading-slash', meta: { page: 'x' } }] }),
+		).toThrow(expect.objectContaining({ code: 'pattern' }))
+	})
+})
+
+describe('Navigator — the published router getter', () => {
+	it('carries the route payload as meta, the same shape navigator.match returns', () => {
+		const navigator = createNavigator<PageMeta>({
+			routes: [{ path: '/tokens', meta: { page: 'tokens' }, name: 'tokens' }],
+		})
+		navigators.push(navigator)
+		const inner = navigator.router.match('/tokens')
+		expect(inner?.meta).toEqual({ page: 'tokens' })
+		expect(inner?.name).toBe('tokens')
+		expect(inner).toEqual(navigator.match('/tokens'))
+	})
+
+	it('registers each route once on the shared engine', () => {
+		const navigator = createNavigator<PageMeta>({
+			routes: [
+				{ path: '/tokens', meta: { page: 'tokens' } },
+				{ path: '/tokens/', meta: { page: 'replaced' } },
+			],
+		})
+		navigators.push(navigator)
+		expect(navigator.router.count).toBe(1)
+		expect(navigator.match('/tokens')?.meta).toEqual({ page: 'replaced' })
 	})
 })
 
@@ -709,7 +760,7 @@ describe('NavigatorInterface — member shape', () => {
 	})
 })
 
-// ── Cross-face grammar parity fixture (§8 "similar surface" pin) ────────────
+// ── Cross-face grammar parity fixture (the similar-surface pin) ─────────────
 //
 // The SAME table as `core/Router.test.ts` and `core/Dispatcher.test.ts` — one
 // one `it` case per face — driven here through the PURE `Navigator.match` lookup (no
@@ -722,7 +773,7 @@ const CROSS_FACE_TABLE = [
 ] as const
 
 describe('Navigator — cross-face grammar parity fixture', () => {
-	it('resolves every fixture case to its expected pattern + params via the pure match() lookup', () => {
+	it('resolves every fixture case to its expected pattern + params through the pure match() lookup', () => {
 		const navigator = createNavigator<PageMeta>({
 			routes: CROSS_FACE_TABLE.map((row) => ({ path: row.pattern, meta: { page: row.pattern } })),
 		})
@@ -732,5 +783,94 @@ describe('Navigator — cross-face grammar parity fixture', () => {
 			expect(match?.path).toBe(row.pattern)
 			expect(match?.params).toEqual(row.params)
 		}
+	})
+})
+
+// ── Flagship fence transcriptions ────────────────────────────────────────────
+//
+// Each block that follows is one `guides/router.md` fence importing `@orkestrel/router/browser`,
+// run against the real barrel and asserting what its comments claim. The `guides` project runs in
+// Node with the browser disabled, so it cannot execute a fence that touches `window` — the
+// core fences are transcribed in `tests/guides.test.ts` and these browser ones live here
+// instead. Change a fence, change its transcription.
+
+interface TitleMeta {
+	readonly title: string
+}
+
+// The fences carry their own `{ title }` payload, so they need their own tracked list — the
+// shared `navigators` array is pinned to `PageMeta`.
+const fenceNavigators: Array<NavigatorInterface<TitleMeta>> = []
+
+describe('flagship fences', () => {
+	afterEach(() => {
+		drainNavigators(fenceNavigators)
+	})
+
+	it('navigates in hash mode and tears down (guides/router.md — Hash-mode navigation)', async () => {
+		await settleHash()
+		const navigator = createNavigator<TitleMeta>({
+			routes: [
+				{ path: '/', meta: { title: 'Home' } },
+				{ path: '/about', meta: { title: 'About' } },
+			],
+		})
+		fenceNavigators.push(navigator)
+		const titles: string[] = []
+		navigator.emitter.on('navigate', (match) => titles.push(match.meta.title))
+		navigator.start()
+		expect(navigator.match('/about')?.meta.title).toBe('About')
+		navigator.navigate('/about')
+		await waitForDelay()
+		expect(navigator.active?.path).toBe('/about')
+		expect(titles).toEqual(['Home', 'About'])
+		navigator.stop()
+		navigator.destroy()
+		expect(navigator.emitter.destroyed).toBe(true)
+	})
+
+	it('binds popstate and link interception in history mode (guides/router.md — History mode with link interception)', () => {
+		settleHistory('/app/users/7')
+		const navigator = createNavigator<TitleMeta>({
+			routes: [{ path: '/users/:id', meta: { title: 'User' } }],
+			history: true,
+			base: '/app',
+			intercept: true,
+		})
+		fenceNavigators.push(navigator)
+		navigator.start()
+		expect(navigator.active?.path).toBe('/users/:id')
+		expect(navigator.active?.params).toEqual({ id: '7' })
+		const anchor = createAnchor('/app/users/9')
+		try {
+			const { prevented } = safeClick(anchor)
+			expect(prevented).toBe(true)
+			expect(window.location.pathname).toBe('/app/users/9')
+			expect(navigator.active?.params).toEqual({ id: '9' })
+		} finally {
+			anchor.remove()
+		}
+	})
+
+	it('runs an async guard before committing (guides/router.md — Guarding navigation)', async () => {
+		await setHash('#/')
+		const navigator = createNavigator<TitleMeta>({
+			routes: [
+				{ path: '/private', meta: { title: 'Private' } },
+				{ path: '/', meta: { title: 'Home' } },
+			],
+			guard: async (_to, _from, signal) => {
+				const allowed = await Promise.resolve(true)
+				return signal.aborted ? false : allowed
+			},
+		})
+		fenceNavigators.push(navigator)
+		navigator.start()
+		expect(navigator.active).toBeUndefined()
+		await waitForDelay()
+		expect(navigator.active?.path).toBe('/')
+		navigator.navigate('/private')
+		await waitForDelay()
+		expect(navigator.active?.path).toBe('/private')
 	})
 })

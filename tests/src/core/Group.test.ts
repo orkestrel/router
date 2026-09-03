@@ -3,8 +3,8 @@ import type { GroupInterface } from '../../../src/core/types.js'
 import { Group } from '../../../src/core/Group.js'
 import { Router } from '../../../src/core/Router.js'
 
-// §16 mirror of `src/core/Group.ts` — the prefix-scoped registration handle
-// split out of `Router.ts` (§5 one-class-per-file): prefix composition,
+// The test mirror of `src/core/Group.ts` — the prefix-scoped registration handle
+// split out of `Router.ts` (the centralized-file rule's one-class-per-file): prefix composition,
 // nesting, batch registration, dedup-key collision across differently-nested
 // group chains, direct construction, and `GroupInterface` member shape.
 
@@ -31,7 +31,7 @@ describe('Router — group(prefix) registration', () => {
 		expect(router.match('/api/users')?.meta.page).toBe('list')
 	})
 
-	it('registers a batch through the group (§9.2 array overload)', () => {
+	it('registers a batch through the group (the array overload)', () => {
 		const router = new Router<PageMeta>()
 		const api = router.group('/api')
 		api.add([

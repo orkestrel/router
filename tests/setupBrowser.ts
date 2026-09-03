@@ -1,12 +1,12 @@
 import type { NavigatorInterface } from '../src/browser/types.js'
 import { waitForDelay } from '@orkestrel/test'
 
-// ── Browser-test setup (AGENTS §16.1) ─────────────────────────────────────────
+// ── Browser-test setup ─────────────────────────────────────────────────────────
 //
 // Loaded after `setup.ts` for the `src:browser` project, which runs in a real
 // Chromium (DOM available, no `node:*`). Holds the `Navigator` teardown +
 // scenario helpers every `src/browser` test reuses — real `location.hash` /
-// `history` + real DOM events, no mocks (§16.2).
+// `history` + real DOM events, no mocks.
 
 /**
  * Destroy and forget every tracked navigator, so no `hashchange` / `popstate`
@@ -34,7 +34,7 @@ export async function settleHash(): Promise<void> {
  * BEFORE any navigator is listening — so a test counting `navigate`
  * emissions sees only the navigator's own resolve(s), not a spurious replay.
  *
- * @param value - The hash to set (e.g. `'#/tokens'`)
+ * @param value - The hash to set (for example `'#/tokens'`)
  */
 export async function setHash(value: string): Promise<void> {
 	window.location.hash = value
@@ -42,7 +42,7 @@ export async function setHash(value: string): Promise<void> {
 }
 
 /**
- * Reset `history` state to a plain root pathname (via `replaceState`) — the
+ * Reset `history` state to a plain root pathname (through `replaceState`) — the
  * `'history'`-mode counterpart of {@link settleHash}, so each `'history'`-mode
  * case starts from a known location with no leftover `pushState` entries
  * driving the next test's resolve.
@@ -59,7 +59,7 @@ export function settleHistory(pathname = '/'): void {
  * `'history'`-mode link-interception test clicks. Caller removes it (or lets
  * the test's own DOM teardown handle it).
  *
- * @param href - The anchor's `href` (a same-origin path, e.g. `'/tokens'`)
+ * @param href - The anchor's `href` (a same-origin path, for example `'/tokens'`)
  * @param options - `target` / `download` set the matching anchor attributes
  * @returns The attached anchor element
  */
@@ -111,7 +111,7 @@ export function click(
 }
 
 /**
- * Dispatch a real click via {@link click} while guaranteeing the iframe can
+ * Dispatch a real click through {@link click} while guaranteeing the iframe can
  * NEVER actually navigate — a bubble-phase `window` listener (registered
  * before dispatch, `{ once: true }`) runs AFTER the `Navigator`'s own
  * `document`-level click listener (bubble order: `document` before `window`),

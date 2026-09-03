@@ -14,7 +14,7 @@ import type {
 } from './types.js'
 import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
-import { isFunction, isString } from '@orkestrel/contract'
+import { ContractError, isFunction, isString, preview } from '@orkestrel/contract'
 import { METHODS } from './constants.js'
 import { computeDispatchKey } from './helpers.js'
 import { parseMethod } from './parsers.js'
@@ -25,17 +25,17 @@ import { DispatchGroup } from './DispatchGroup.js'
  * Represents the fetch-standard, method-dimensioned dispatch entity — layers HTTP method
  * dispatch and web-standard `Request`/`Response` handling over one internal
  * `Router<RouteRecord<TState>>`. The core machine the eventual server face
- * (§7) and any fetch-native runtime consumes directly.
+ * and any fetch-native runtime consumes directly.
  *
  * @typeParam TState - The consumer's opaque per-request state type
  *
  * @remarks
  * - **Dedup by `method + canonicalizePath`.** The underlying `Router` is
  *   constructed with a `key` function so registering the same method+path
- *   twice REPLACES the prior route in place (§5.1).
- * - **Registration boundary guard (§14).** `add` validates each input's
+ *   twice REPLACES the prior route in place.
+ * - **Registration boundary guard.** `add` validates each input's
  *   `handler` (`isFunction`) and `method` (must be in {@link METHODS}) —
- *   throws `TypeError` on a malformed registration; path validation is
+ *   throws a `ContractError` on a malformed registration; path validation is
  *   delegated to the underlying `Router`'s own guard. `match`/`handle` stay
  *   guard-free.
  * - **Auto-`HEAD` / auto-`OPTIONS`.** A `HEAD` request with no registered
@@ -43,8 +43,8 @@ import { DispatchGroup } from './DispatchGroup.js'
  *   body; an `OPTIONS` request with no registered `OPTIONS` route answers
  *   `204` with a derived `Allow` header.
  * - **Handler throws propagate.** `handle` never invents an error boundary —
- *   a handler throw reaches the caller uncaught (§5.1).
- * - **Emitter (§13).** Owns a `#emitter` for {@link DispatcherEventMap};
+ *   a handler throw reaches the caller uncaught.
+ * - **Emitter.** Owns a `#emitter` for {@link DispatcherEventMap};
  *   `match`/`miss` fire AFTER resolution, before the handler/responder runs.
  *
  * @example
@@ -130,7 +130,10 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		if (result.status === 'matched')
 			return this.#respondMatched(request, state, method, result.match, url)
 		if (result.status === 'unmethoded') {
-			if (method === 'OPTIONS') return this.#respondAutoOptions(pathname, result.allow)
+			if (method === 'OPTIONS') {
+				const hit = this.#router.match(pathname)
+				if (hit !== undefined) return this.#respondAutoOptions(hit.path, result.allow)
+			}
 			this.#emitter.emit('miss', method, pathname, 'unmethoded')
 			return this.#respondUnmethoded(request, result.allow)
 		}
@@ -142,17 +145,27 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		this.#emitter.destroy()
 	}
 
-	// Validate the registration boundary (§14: handler function, known method), then delegate
+	// Validate the registration boundary (handler function, known method), then delegate
 	// path validation + dedup to the underlying `Router`'s own guard.
 	#register(input: RouteInput<string, TState>): void {
 		if (!isFunction(input.handler))
-			throw new TypeError(
-				`a route handler must be a function, got ${JSON.stringify(input.handler)}`,
-			)
+			throw new ContractError('a route handler must be a function', {
+				code: 'literal',
+				context: {
+					path: ['input', 'handler'],
+					limit: 'function',
+					received: preview(input.handler),
+				},
+			})
 		if (!isString(input.method) || !METHODS.has(input.method))
-			throw new TypeError(
-				`a route method must be one of ${[...METHODS].join(', ')}, got ${JSON.stringify(input.method)}`,
-			)
+			throw new ContractError('a route method must be a registrable HTTP method', {
+				code: 'literal',
+				context: {
+					path: ['input', 'method'],
+					limit: [...METHODS].join(', '),
+					received: preview(input.method),
+				},
+			})
 		const name = input.name
 		this.#router.add({
 			path: input.path,
@@ -166,7 +179,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	}
 
 	// The derived `Allow` set for a pathname — every distinct registered method, with `HEAD`
-	// added whenever `GET` is present and `HEAD` is not explicitly registered (§5.1).
+	// added whenever `GET` is present and `HEAD` is not explicitly registered.
 	#allow(pathname: string): readonly Method[] {
 		const entries: ReadonlyArray<RouteEntry<RouteRecord<TState>>> = this.#router.entries(pathname)
 		const methods = new Set<Method>()
@@ -217,9 +230,11 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	}
 
 	// Derived `OPTIONS` — no explicit `OPTIONS` route registered for this pathname: answer
-	// `204` with the derived `Allow` set (adding `OPTIONS` itself, always answerable).
-	#respondAutoOptions(pathname: string, allow: readonly Method[]): Response {
-		this.#emitter.emit('match', 'OPTIONS', pathname)
+	// `204` with the derived `Allow` set (adding `OPTIONS` itself, always answerable), emitting
+	// `match` under the most-specific REGISTERED pattern the pathname resolved to, so a consumer
+	// aggregating by pattern sees bounded cardinality rather than one label per request path.
+	#respondAutoOptions(pattern: string, allow: readonly Method[]): Response {
+		this.#emitter.emit('match', 'OPTIONS', pattern)
 		const headers = new Headers({ Allow: [...allow, 'OPTIONS'].join(', ') })
 		return new Response(null, { status: 204, headers })
 	}

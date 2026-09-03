@@ -7,11 +7,12 @@ import type {
 	RouteContext,
 	RouteHandler,
 } from '../../../src/core/types.js'
+import { ContractError } from '@orkestrel/contract'
 import { createDispatcher } from '../../../src/core/factories.js'
 import { Dispatcher } from '../../../src/core/Dispatcher.js'
 import { createRecorder } from '@orkestrel/test'
 
-// §16 net-new mirror slice of `src/core/Dispatcher.ts` — U6-scoped: type-level
+// The net-new test mirror slice of `src/core/Dispatcher.ts` — U6-scoped: type-level
 // surfaces (RouteHandler context typing, TState generic flow, DispatcherInterface
 // member shape, factory return type), the emitter event payload shapes, destroy
 // idempotence, and the cross-face grammar parity fixture driven through
@@ -32,7 +33,7 @@ describe('createDispatcher — factory return type', () => {
 })
 
 describe('RouteHandler — context typing per Path', () => {
-	it('types context.params from the literal Path via PathParams', () => {
+	it('types context.params from the literal Path through PathParams', () => {
 		const handler: RouteHandler<'/users/:id/posts/:slug'> = (_request, context) => {
 			expectTypeOf(context.params).toEqualTypeOf<{ readonly id: string; readonly slug: string }>()
 			return new Response(context.params.id)
@@ -88,7 +89,7 @@ describe('Dispatcher — emitter event payload shapes (real listeners, no mocks)
 		dispatcher.destroy()
 	})
 
-	it('emits `miss` with the method, pathname, and "unmatched" reason on a total miss', async () => {
+	it('emits `miss` with the method, pathname, and "unmatched" status on a total miss', async () => {
 		const dispatcher = createDispatcher()
 		const recorder = createRecorder<DispatcherEventMap['miss']>()
 		dispatcher.emitter.on('miss', recorder.handler)
@@ -97,7 +98,7 @@ describe('Dispatcher — emitter event payload shapes (real listeners, no mocks)
 		dispatcher.destroy()
 	})
 
-	it('emits `miss` with reason "unmethoded" when the path matches but the method does not', async () => {
+	it('emits `miss` with status "unmethoded" when the path matches but the method does not', async () => {
 		const dispatcher = createDispatcher()
 		const recorder = createRecorder<DispatcherEventMap['miss']>()
 		dispatcher.emitter.on('miss', recorder.handler)
@@ -118,7 +119,7 @@ describe('Dispatcher — destroy() idempotence', () => {
 	})
 })
 
-// ── Cross-face grammar parity fixture (§8 "similar surface" pin) ────────────
+// ── Cross-face grammar parity fixture (the similar-surface pin) ─────────────
 //
 // The SAME table as `core/Router.test.ts` and `browser/Navigator.test.ts` — one
 // one `it` case per face — driven here through `Dispatcher.match`, which layers method
@@ -141,7 +142,7 @@ function matchedResult<TState>(
 }
 
 describe('Dispatcher — cross-face grammar parity fixture', () => {
-	it('resolves every fixture case to its expected pattern + params via match(method, pathname)', () => {
+	it('resolves every fixture case to its expected pattern + params through match(method, pathname)', () => {
 		const dispatcher = createDispatcher()
 		dispatcher.add(
 			CROSS_FACE_TABLE.map((row): { method: Method; path: string; handler: () => Response } => ({
@@ -159,7 +160,7 @@ describe('Dispatcher — cross-face grammar parity fixture', () => {
 	})
 })
 
-// ── Behavioral dispatch matrix (PROPOSAL §5.1) ───────────────────────────────
+// ── Behavioral dispatch matrix ────────────────────────────────────────────────
 
 describe('Dispatcher — matched GET route', () => {
 	it('returns the handler Response verbatim', async () => {
@@ -219,7 +220,7 @@ describe('Dispatcher — default responders', () => {
 	})
 })
 
-describe('Dispatcher — auto-HEAD (§5.1)', () => {
+describe('Dispatcher — auto-HEAD', () => {
 	it('answers a HEAD request with only a GET route using the GET handler status+headers and a null body', async () => {
 		const dispatcher = createDispatcher()
 		dispatcher.add({
@@ -298,36 +299,52 @@ describe('Dispatcher — auto-OPTIONS', () => {
 		expect(allow).toContain('OPTIONS')
 		dispatcher.destroy()
 	})
+
+	it('emits `match` under the winning registered pattern, not the request pathname', async () => {
+		const dispatcher = createDispatcher()
+		const recorder = createRecorder<DispatcherEventMap['match']>()
+		dispatcher.emitter.on('match', recorder.handler)
+		dispatcher.add({ method: 'GET', path: '/users/:id', handler: () => new Response('ok') })
+		await dispatcher.handle(new Request('http://x/users/7', { method: 'OPTIONS' }), undefined)
+		expect(recorder.calls).toEqual([['OPTIONS', '/users/:id']])
+		dispatcher.destroy()
+	})
 })
 
-describe('Dispatcher — registration boundary guard (§14)', () => {
-	it('throws TypeError when handler is not a function', () => {
+describe('Dispatcher — registration boundary guard', () => {
+	it('throws a ContractError coded `literal` when handler is not a function', () => {
 		const dispatcher = createDispatcher()
 		// A malformed handler, arriving the way it would from an untyped boundary (parsed JSON) —
-		// `JSON.parse` returns `any`, so assigning it to the declared function-typed field below
+		// `JSON.parse` returns `any`, so assigning it to the following declared function-typed field
 		// needs no `as` (the value is genuinely a runtime string).
 		const malformedHandler: RouteHandler = JSON.parse('"not-a-function"')
 		expect(() =>
 			dispatcher.add({ method: 'GET', path: '/health', handler: malformedHandler }),
-		).toThrow(TypeError)
+		).toThrow(ContractError)
+		expect(() =>
+			dispatcher.add({ method: 'GET', path: '/health', handler: malformedHandler }),
+		).toThrow(expect.objectContaining({ code: 'literal' }))
 		dispatcher.destroy()
 	})
 
-	it('throws TypeError when method is outside the registrable set', () => {
+	it('throws a ContractError coded `literal` when method is outside the registrable set', () => {
 		const dispatcher = createDispatcher()
-		// A method sourced from an untyped boundary (parsed JSON) — assigned to the declared
-		// `Method` type below with no `as` (the value is genuinely a runtime `'TRACE'` string
+		// A method sourced from an untyped boundary (parsed JSON) — assigned to the following
+		// declared `Method` type with no `as` (the value is genuinely a runtime `'TRACE'` string
 		// outside the registrable set).
 		const badMethod: Method = JSON.parse('"TRACE"')
 		expect(() =>
 			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
-		).toThrow(TypeError)
+		).toThrow(ContractError)
+		expect(() =>
+			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
+		).toThrow(expect.objectContaining({ code: 'literal' }))
 		dispatcher.destroy()
 	})
 })
 
 describe('Dispatcher — unknown verb', () => {
-	it('routes an unknown method (e.g. PURGE) against an unregistered path to unmatched, never a throw', async () => {
+	it('routes an unknown method (for example PURGE) against an unregistered path to unmatched, never a throw', async () => {
 		const dispatcher = createDispatcher()
 		let response: Response | undefined
 		await expect(async () => {
@@ -355,7 +372,7 @@ describe('Dispatcher — unknown verb', () => {
 		dispatcher.destroy()
 	})
 
-	it('emits miss with the raw verb and "unmatched" reason for an unregistered path', async () => {
+	it('emits miss with the raw verb and "unmatched" status for an unregistered path', async () => {
 		const dispatcher = createDispatcher()
 		const recorder = createRecorder<DispatcherEventMap['miss']>()
 		dispatcher.emitter.on('miss', recorder.handler)

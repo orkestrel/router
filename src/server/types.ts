@@ -1,7 +1,7 @@
 // ============================================================================
-//  The node adapter — type definitions (the §5 source of truth). This face is
+//  The node adapter — type definitions (the types.ts source of truth). This face is
 //  deliberately tiny: message-format conversion between `node:http` and the
-//  fetch vocabulary the core `Dispatcher` speaks, nothing else (§5.3). No
+//  fetch vocabulary the core `Dispatcher` speaks, nothing else. No
 //  lifecycle, no listener ownership beyond the handler function itself.
 // ============================================================================
 

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { createDispatcher } from '../../../src/core/factories.js'
 import { DispatchGroup } from '../../../src/core/DispatchGroup.js'
 
-// §16 mirror of `src/core/DispatchGroup.ts` — the prefix-scoped registration
-// handle split out of `Dispatcher.ts` (§5 one-class-per-file): prefix
-// composition, nesting, and direct construction.
+// The test mirror of `src/core/DispatchGroup.ts` — the prefix-scoped registration
+// handle split out of `Dispatcher.ts` (the centralized-file rule's one-class-per-file):
+// prefix composition, nesting, and direct construction.
 
 describe('DispatchGroup — direct construction', () => {
 	it('constructs directly over a parent DispatcherInterface and forwards add()', async () => {

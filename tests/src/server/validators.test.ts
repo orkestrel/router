@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isEncryptedSocket } from '../../../src/server/validators.js'
 
-// §16 mirror of `src/server/validators.ts` — pins the TLS-socket narrow that
+// The test mirror of `src/server/validators.ts` — pins the TLS-socket narrow that
 // picks `buildRequest`'s derived scheme, including its totality off-shape.
 
 describe('isEncryptedSocket', () => {

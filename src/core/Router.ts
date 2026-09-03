@@ -7,7 +7,7 @@ import type {
 	RouterMatch,
 	RouterOptions,
 } from './types.js'
-import { isString } from '@orkestrel/contract'
+import { ContractError, isString, preview } from '@orkestrel/contract'
 import { compareSpecificity, compilePath, matchPath } from './helpers.js'
 import { Group } from './Group.js'
 
@@ -20,18 +20,18 @@ import { Group } from './Group.js'
  * @typeParam Meta - The opaque payload each entry carries and a match returns
  *
  * @remarks
- * - **Registration boundary guard (§14).** `add` validates each entry's
- *   `path` — `isString` plus a leading `/` — and throws `TypeError` on a
+ * - **Registration boundary guard.** `add` validates each entry's
+ *   `path` — `isString` plus a leading `/` — and throws a `ContractError` on a
  *   malformed registration; `match` stays guard-free (the hot path).
  * - **Compile-once.** Each path is compiled exactly once at registration into
  *   a parallel `#compiled` array, so `match` runs only a cached `exec` per
  *   candidate.
- * - **Dedup via `key`.** When `options.key` is set, an entry whose computed
+ * - **Dedup through `key`.** When `options.key` is set, an entry whose computed
  *   key already exists REPLACES the prior one IN PLACE (both the `#entries`
  *   and `#compiled` arrays, at the existing index) — last write wins, no
  *   engine rebuild. Omitted ⇒ every entry is kept, even duplicate paths.
  * - **Groups.** `group(prefix)` returns a {@link GroupInterface} that composes
- *   `prefix` onto every entry it registers, nesting via {@link joinPaths}.
+ *   `prefix` onto every entry it registers, nesting through {@link joinPaths}.
  *
  * @example
  * ```ts
@@ -109,14 +109,24 @@ export class Router<Meta> implements RouterInterface<Meta> {
 		this.#index.clear()
 	}
 
-	// Validate the registration boundary (§14: isString + leading '/'), then either replace an
-	// existing entry IN PLACE (dedup via `#key`, last write wins) or append a new one — the
+	// Validate the registration boundary (isString + leading '/'), then either replace an
+	// existing entry IN PLACE (dedup through `#key`, last write wins) or append a new one — the
 	// engine's compile-once invariant, kept in sync across the `#entries`/`#compiled` pair.
 	#register(entry: RouteEntry<Meta>): void {
-		if (!isString(entry.path) || !entry.path.startsWith('/'))
-			throw new TypeError(
-				`a route path must be a string starting with "/", got ${JSON.stringify(entry.path)}`,
-			)
+		if (!isString(entry.path))
+			throw new ContractError('a route path must be a string', {
+				code: 'literal',
+				context: { path: ['entry', 'path'], limit: 'string', received: preview(entry.path) },
+			})
+		if (!entry.path.startsWith('/'))
+			throw new ContractError('a route path must start with "/"', {
+				code: 'pattern',
+				context: {
+					path: ['entry', 'path'],
+					limit: 'a "/"-prefixed path pattern',
+					received: preview(entry.path),
+				},
+			})
 		const compiled = compilePath(entry.path, this.#sensitive)
 		if (this.#key === undefined) {
 			this.#entries.push(entry)

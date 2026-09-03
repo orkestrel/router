@@ -1,11 +1,12 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { PathParams, RouterInterface } from '../../../src/core/types.js'
+import { ContractError } from '@orkestrel/contract'
 import { createRouter } from '../../../src/core/factories.js'
 import { Router } from '../../../src/core/Router.js'
 
-// §16 mirror of `src/core/Router.ts` — pins the registry + most-specific-match scan and the
+// The test mirror of `src/core/Router.ts` — pins the registry + most-specific-match scan and the
 // `answers` override seam (ported from the old `RouteMatcher` acceptance spec, adapted to the
-// `/`-prefixed grammar), PLUS the two promotions: dedup via `key` (replace-in-place) and
+// `/`-prefixed grammar), PLUS the two promotions: dedup through `key` (replace-in-place) and
 // `group(prefix)` prefix composition.
 
 // A method-dimensioned meta (the Dispatcher's shape) — `answers` reads `method`.
@@ -27,7 +28,7 @@ describe('Router — registration', () => {
 		expect(router.count).toBe(1)
 	})
 
-	it('registers a batch (the §9.2 array overload)', () => {
+	it('registers a batch (the array overload)', () => {
 		const router = new Router<PageMeta>()
 		router.add([
 			{ path: '/a', meta: { page: 'a' } },
@@ -61,18 +62,24 @@ describe('Router — registration', () => {
 		expect(router.match('/b')?.meta.page).toBe('b')
 	})
 
-	it('throws TypeError when path is not a string', () => {
+	it('throws a ContractError coded `literal` when path is not a string', () => {
 		const router = new Router<PageMeta>()
 		// A malformed registration input, arriving the way it would from an untyped boundary
 		// (parsed JSON) — `JSON.parse` returns `unknown`-widened `any`, so assigning it to the
-		// declared `string` type below needs no `as` (the value is genuinely a runtime `number`).
+		// following declared `string` type needs no `as` (the value is genuinely a runtime `number`).
 		const malformedPath: string = JSON.parse('7')
-		expect(() => router.add({ path: malformedPath, meta: { page: 'a' } })).toThrow(TypeError)
+		expect(() => router.add({ path: malformedPath, meta: { page: 'a' } })).toThrow(ContractError)
+		expect(() => router.add({ path: malformedPath, meta: { page: 'a' } })).toThrow(
+			expect.objectContaining({ code: 'literal' }),
+		)
 	})
 
-	it('throws TypeError when path does not start with "/"', () => {
+	it('throws a ContractError coded `pattern` when path does not start with "/"', () => {
 		const router = new Router<PageMeta>()
-		expect(() => router.add({ path: 'users', meta: { page: 'a' } })).toThrow(TypeError)
+		expect(() => router.add({ path: 'users', meta: { page: 'a' } })).toThrow(ContractError)
+		expect(() => router.add({ path: 'users', meta: { page: 'a' } })).toThrow(
+			expect.objectContaining({ code: 'pattern' }),
+		)
 	})
 })
 
@@ -229,7 +236,7 @@ describe('Router — entries() accessor', () => {
 	})
 })
 
-describe('Router — dedup via `key` (replace-in-place, last write wins)', () => {
+describe('Router — dedup through `key` (replace-in-place, last write wins)', () => {
 	it('replaces the entry in place at the existing index, keeping count stable', () => {
 		const router = new Router<PageMeta>({ key: (entry) => entry.path })
 		router.add({ path: '/users', meta: { page: 'first' } })
@@ -446,7 +453,7 @@ describe('Router — answers-seam filtering leaves specificity intact', () => {
 	})
 })
 
-// ── Cross-face grammar parity fixture (§8 "similar surface" pin) ────────────
+// ── Cross-face grammar parity fixture (the similar-surface pin) ─────────────
 //
 // The SAME route table is driven through `Router.match` (here), `Dispatcher.match`
 // (core/Dispatcher.test.ts), and `Navigator.match` (browser/Navigator.test.ts) — one

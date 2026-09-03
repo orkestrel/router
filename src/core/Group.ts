@@ -3,14 +3,14 @@ import { joinPaths } from './helpers.js'
 
 /**
  * Represents a prefix-scoped registration handle over a {@link import('./Router.js').Router} —
- * pure string composition (AGENTS §4.2.2), no independent state or storage.
+ * pure string composition, no independent state or storage.
  *
  * @typeParam Meta - The entry payload type, matching the owning router
  *
  * @remarks
  * Every `add` composes `entry.path` as `joinPaths(prefix, entry.path)` and
  * forwards to the OWNING router, so grouped routes land in the SAME registry.
- * `group(prefix)` nests, composing prefixes via {@link joinPaths}.
+ * `group(prefix)` nests, composing prefixes through {@link joinPaths}.
  *
  * @example
  * ```ts

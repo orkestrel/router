@@ -3,7 +3,7 @@ import { Navigator } from './Navigator.js'
 
 /**
  * Creates a {@link NavigatorInterface} — the headless History/hash navigation
- * entity composing one core `Router<RouteEntry<Meta>>`.
+ * entity composing one core `Router<Meta>`.
  *
  * @remarks
  * Prefer this over `new Navigator(...)` at call sites that only need the
@@ -13,7 +13,7 @@ import { Navigator } from './Navigator.js'
  * @param options - The `routes` to register, the `history` toggle (default
  *   `false`, hash mode), an optional `base` (history mode), an optional
  *   `fallback` path, an optional `guard` hook, opt-in link `intercept`
- *   (history mode), the `sensitive` case toggle, and the AGENTS §13 emitter
+ *   (history mode), the `sensitive` case toggle, and the Emitter pattern's
  *   `on`/`error` wiring
  * @returns A live {@link NavigatorInterface} handle — call `start()` to begin
  *   dispatching

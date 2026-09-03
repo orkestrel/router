@@ -1,8 +1,9 @@
 import type { CompiledPath, Method, RouteEntry, RouteInput } from './types.js'
+import { ContractError, preview } from '@orkestrel/contract'
 import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 
-// The PURE path-matching primitives (AGENTS §4.3 multi-word names — module scope,
-// no entity context). Every one is exported (the centralized-file rule, §5): a
+// The PURE path-matching primitives (self-describing helper naming — module scope,
+// no entity context). Every one is exported (the centralized-file rule): a
 // consumer composes them directly, or reaches them through the `Router` engine.
 // They speak ONLY `string` / `RegExp` / `Record` and `decodeURIComponent` (a
 // platform global valid in Node and the browser alike) — NO DOM, NO `node:*` — so
@@ -90,7 +91,7 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * `([^/]+)` capture group; the FINAL segment may instead be `*name`, which
  * becomes a `(.+)` capture spanning the REST of the path including slashes — a
  * wildcard segment anywhere but last is a registration-time programmer error
- * and throws `TypeError` (§14 construction/registration boundary). Every regex
+ * and throws a `ContractError` at the construction/registration boundary. Every regex
  * metacharacter in a literal segment is escaped first ({@link escapeRegExp}),
  * so a path like `/files/:name.json` matches the `.` literally apart from the
  * param. The regex is anchored (`^…$`), so it matches the whole pathname, not
@@ -108,10 +109,12 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * regex flag, so `/Users` matches `/users`. The pattern's own casing is never
  * altered — only the matching behavior.
  *
- * @param path - The route path pattern (e.g. `/users/:id`, `/files/*rest`)
- * @param sensitive - Case-sensitive matching (default `true`)
+ * @param path - The route path pattern (for example `/users/:id`, `/files/*rest`)
+ * @param sensitive - If `true`, matching is case-sensitive; if `false`, case is
+ *   folded during matching. Default: `true`
  * @returns The {@link CompiledPath} — its `regex` + ordered `params`
- * @throws {TypeError} When a `*name` wildcard segment is not the FINAL segment
+ * @throws {@link import('@orkestrel/contract').ContractError} Thrown when a
+ *   `*name` wildcard segment is not the FINAL segment
  *
  * @example
  * ```ts
@@ -133,12 +136,17 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 	const compiledSegments = segments.map((segment, index) => {
 		const isFinal = index === segments.length - 1
 		// A wildcard-shaped segment head (`*name`) is only valid as the FINAL segment — a
-		// registration-time programmer error anywhere else (§14 boundary guard).
+		// registration-time programmer error anywhere else, guarded at the boundary.
 		if (!isFinal && /^\*[A-Za-z_]\w*/.test(segment))
-			throw new TypeError(
-				`a wildcard segment ("${segment}") must be the final segment of a path pattern, got "${path}"`,
-			)
-		// Classification and compilation share ONE segment parser (§4 fix) — the tier
+			throw new ContractError('a wildcard segment must be the final segment of a path pattern', {
+				code: 'placement',
+				context: {
+					path: ['path'],
+					limit: `a wildcard only in the final segment, not "${segment}"`,
+					received: preview(path),
+				},
+			})
+		// Classification and compilation share ONE segment parser — the tier
 		// {@link classifySegment} assigns is exactly the shape compiled here.
 		const tier = classifySegment(segment, isFinal)
 		if (tier === TIER_WILDCARD) {
@@ -169,7 +177,7 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
  * @remarks
  * A bad `%` sequence is not a reason to reject an otherwise-matching route, so
  * a `decodeURIComponent` that would throw falls back to the raw value
- * (mirroring the cookie / token boundary readers, AGENTS §14). Total — never
+ * (mirroring the cookie / token boundary readers). Total — never
  * throws.
  *
  * @param value - The raw captured param value
@@ -203,7 +211,7 @@ export function decodeParam(value: string): string {
  * for a parameterless path). Total — never throws.
  *
  * @param compiled - The {@link CompiledPath} from {@link compilePath}
- * @param pathname - The concrete request pathname to match (e.g. `/users/7`)
+ * @param pathname - The concrete request pathname to match (for example `/users/7`)
  * @returns The decoded params on a hit, or `undefined` on a miss
  *
  * @example
@@ -233,7 +241,7 @@ export function matchPath(
  * Classifies one path segment into its specificity TIER — the SAME syntax
  * {@link compilePath} rewrites: a syntactically valid `:name` head is a PARAM
  * segment, a final `*name` is a WILDCARD segment, everything else (including a
- * literal segment that merely CONTAINS a `:` mid-string, e.g. `a:b`) is a
+ * literal segment that merely CONTAINS a `:` mid-string, for example `a:b`) is a
  * LITERAL segment.
  *
  * @remarks
@@ -241,11 +249,12 @@ export function matchPath(
  * segment `includes(':')` as a param, so a literal segment like `a:b` was
  * mis-tiered even though {@link compilePath} compiles it literally. Sharing one
  * segment parser between compilation and classification keeps the two in
- * agreement (§4 fixes). Pure and total.
+ * agreement. Pure and total.
  *
  * @param segment - One `/`-split path segment
- * @param isFinal - Whether `segment` is the last segment of its path (only the
- *   final segment may be classified as a wildcard)
+ * @param isFinal - If `true`, `segment` is the path's last segment and may
+ *   classify as a wildcard; if `false`, a wildcard-shaped segment classifies as
+ *   a literal
  * @returns The segment's specificity tier — {@link import('./constants.js').TIER_LITERAL},
  *   {@link import('./constants.js').TIER_PARAM}, or
  *   {@link import('./constants.js').TIER_WILDCARD}
@@ -271,9 +280,9 @@ export function classifySegment(segment: string, isFinal: boolean): number {
  *
  * @remarks
  * Splits the CANONICALIZED path into segments (on `/`) and maps each to its
- * specificity tier via {@link classifySegment} — the same segment parser
+ * specificity tier through {@link classifySegment} — the same segment parser
  * {@link compilePath} uses, so a literal segment that merely contains a `:`
- * (e.g. `a:b`) is correctly tiered as literal rather than param (the old
+ * (for example `a:b`) is correctly tiered as literal rather than param (the old
  * engine's bug, fixed here). The standard route-precedence rule compares two
  * matching routes' vectors LEFT-TO-RIGHT: at the first index where the tiers
  * differ, the HIGHER tier (a literal over a param over a wildcard) is MORE
@@ -283,7 +292,7 @@ export function classifySegment(segment: string, isFinal: boolean): number {
  * count in the common case; {@link compareSpecificity} handles the general
  * case for totality.
  *
- * @param path - The route path pattern (e.g. `/users/:id`)
+ * @param path - The route path pattern (for example `/users/:id`)
  * @returns The per-segment specificity tiers, in order
  *
  * @example
@@ -345,14 +354,14 @@ export function compareSpecificity(a: string, b: string): number {
  * @remarks
  * {@link import('./types.js').GroupInterface} / {@link import('./types.js').DispatchGroupInterface}
  * compose a prefix with each registered entry's path this way — pure string
- * composition (§4.2.2), no independent state. Both a duplicated slash
+ * composition, no independent state. Both a duplicated slash
  * (`'/api/'` + `'/users'`) and a missing one (`'/api'` + `'users'`) normalize
  * to a single joining slash. An empty `prefix` returns `path` unchanged (after
  * ensuring a leading slash); an empty `path` returns `prefix` unchanged.
  * Pure and total.
  *
- * @param prefix - The group prefix (e.g. `/api`)
- * @param path - The route path being joined under the prefix (e.g. `/users`)
+ * @param prefix - The group prefix (for example `/api`)
+ * @param path - The route path being joined under the prefix (for example `/users`)
  * @returns The joined `/`-prefixed path
  *
  * @example
@@ -382,26 +391,26 @@ export function joinPaths(prefix: string, path: string): string {
  * `add` already infers `Path` as a literal at that call site — but the moment
  * the object is built through an intermediate binding (a local `const route =
  * { method, path, handler }`) TypeScript widens `path` to `string` unless the
- * binding's own type is pinned. Wrapping the literal in `route(...)` supplies
- * that pin: its `const Path extends string` type parameter infers the NARROW
- * literal from the call, and the function returns its input completely
+ * binding's own type is pinned. Wrapping the literal in `defineRoute(...)`
+ * supplies that pin: its `const Path extends string` type parameter infers the
+ * NARROW literal from the call, and the function returns its input completely
  * unchanged (same reference, no cloning, no validation) — this is a
  * compile-time typing aid only, not a construction step (contrast
  * {@link import('./factories.js')} `create*` entity factories). A
- * heterogeneous `RouteInput[]` built from several `route(...)` calls still
- * widens each element's `Path` to `string` once collected into one array
- * (§14) — the realistic ceiling this helper raises is PER-CALL typing at the
+ * heterogeneous `RouteInput[]` built from several `defineRoute(...)` calls
+ * still widens each element's `Path` to `string` after collection into one array —
+ * the realistic ceiling this helper raises is PER-CALL typing at the
  * registration site, not a stored, still-literal-typed record.
  *
  * @typeParam Path - The route path pattern literal (drives `context.params`
- *   via {@link PathParams})
+ *   through {@link PathParams})
  * @typeParam TState - The consumer's opaque per-request state type
  * @param input - The {@link RouteInput} to pass through unchanged
  * @returns `input`, unchanged (same reference)
  *
  * @example
  * ```ts
- * const input = route({
+ * const input = defineRoute({
  * 	method: 'GET',
  * 	path: '/users/:id',
  * 	handler: (_request, context) => new Response(context.params.id), // typed string
@@ -409,7 +418,7 @@ export function joinPaths(prefix: string, path: string): string {
  * dispatcher.add(input)
  * ```
  */
-export function route<const Path extends string, TState = undefined>(
+export function defineRoute<const Path extends string, TState = undefined>(
 	input: RouteInput<Path, TState>,
 ): RouteInput<Path, TState> {
 	return input

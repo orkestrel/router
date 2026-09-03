@@ -1,6 +1,13 @@
-// The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
-// this repo's own `guides/README.md` manifest. The five constants below are this
-// package's own, and are the only part a sibling package changes.
+// The guides-parity gate: `@orkestrel/guide`'s checks run against this repository's own
+// `guides/README.md` manifest, and every flagship fence in `guides/router.md` that this project
+// can execute is transcribed here and asserted against what its comments claim. Name resolution
+// is not a behavioural proof, so a fence documenting a value the code contradicts is exactly what
+// the transcriptions catch. Change a fence, change its transcription.
+//
+// This project runs in Node with the browser disabled, so it cannot execute a fence that touches
+// `window`: the `@orkestrel/router/browser` fences are transcribed in
+// `tests/src/browser/Navigator.test.ts` instead, and the `@orkestrel/router/server` fences are
+// covered by `tests/src/server/handlers.test.ts` over real `node:http` sockets.
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -20,6 +27,7 @@ import {
 import { readFileSync } from 'node:fs'
 import { requireValue } from '@orkestrel/test'
 import { readInventory } from '@orkestrel/test/server'
+import { createDispatcher, createRouter, defineRoute } from '@src/core'
 
 /** Every fence language this package's guides are allowed to use. */
 const FENCE_LANGUAGES = Object.freeze(['ts'])
@@ -32,6 +40,8 @@ const EXAMPLE_LANGUAGE = 'ts'
  */
 const MODULES = Object.freeze({
 	'@orkestrel/router': 'src/core',
+	'@orkestrel/router/browser': 'src/browser',
+	'@orkestrel/router/server': 'src/server',
 	'@src/browser': 'src/browser',
 	'@src/core': 'src/core',
 	'@src/server': 'src/server',
@@ -41,7 +51,7 @@ const MODULES = Object.freeze({
  *
  * A class that one-class-per-file evicted from its single consumer cannot become a
  * local, so it stays exported without being public. Naming it here is what makes that
- * intentional rather than forgotten — and the second assertion below fails when a name
+ * intentional rather than forgotten — and the following second assertion fails when a name
  * here stops being stranded, so the list cannot rot.
  */
 const INTERNAL: readonly string[] = Object.freeze([])
@@ -177,3 +187,128 @@ for (const entry of manifest) {
 		})
 	})
 }
+
+// ── Flagship fence transcriptions ────────────────────────────────────────────
+//
+// Each block that follows is one `guides/router.md` fence, run against the real barrel and
+// asserting the value its comments claim.
+
+describe('flagship fences', () => {
+	it('registers, matches, and dispatches (Surface)', async () => {
+		const router = createRouter<{ readonly page: string }>()
+		router.add({ path: '/users/:id', meta: { page: 'profile' } })
+		expect(router.match('/users/7')).toEqual({
+			path: '/users/:id',
+			params: { id: '7' },
+			meta: { page: 'profile' },
+		})
+
+		const dispatcher = createDispatcher<{ readonly userId: string }>({
+			routes: [
+				{
+					method: 'GET',
+					path: '/users/:id',
+					handler: (_request, context) => Response.json(context.params),
+				},
+			],
+		})
+		const response = await dispatcher.handle(new Request('http://x/users/7'), { userId: 'me' })
+		expect(await response.json()).toEqual({ id: '7' })
+		dispatcher.destroy()
+	})
+
+	it('composes a group prefix and replaces on a repeated key (Groups and dedup)', () => {
+		const router = createRouter<{ readonly page: string }>({ key: (entry) => entry.path })
+		const api = router.group('/api')
+		api.add({ path: '/users', meta: { page: 'list' } })
+		expect(router.match('/api/users')?.path).toBe('/api/users')
+
+		router.add({ path: '/api/users', meta: { page: 'list-v2' } })
+		expect(router.count).toBe(1)
+		expect(router.match('/api/users')?.meta).toEqual({ page: 'list-v2' })
+	})
+
+	it('ranks literal over param over wildcard (Wildcard capture and precedence)', () => {
+		const router = createRouter<{ readonly handler: string }>()
+		router.add([
+			{ path: '/files/*rest', meta: { handler: 'catchAll' } },
+			{ path: '/files/:name', meta: { handler: 'named' } },
+			{ path: '/files/readme', meta: { handler: 'literal' } },
+		])
+		expect(router.match('/files/readme')?.meta.handler).toBe('literal')
+		expect(router.match('/files/other')?.meta.handler).toBe('named')
+		expect(router.match('/files/a/b.png')?.meta.handler).toBe('catchAll')
+	})
+
+	it('derives HEAD, OPTIONS, and 405 (Method-dimensioned dispatch)', async () => {
+		const dispatcher = createDispatcher()
+		dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
+
+		const head = await dispatcher.handle(
+			new Request('http://x/health', { method: 'HEAD' }),
+			undefined,
+		)
+		expect(head.body).toBeNull()
+
+		const options = await dispatcher.handle(
+			new Request('http://x/health', { method: 'OPTIONS' }),
+			undefined,
+		)
+		expect(options.headers.get('Allow')).toBe('GET, HEAD, OPTIONS')
+
+		const notAllowed = await dispatcher.handle(
+			new Request('http://x/health', { method: 'DELETE' }),
+			undefined,
+		)
+		expect(notAllowed.status).toBe(405)
+		dispatcher.destroy()
+	})
+
+	it('emits a miss for an unregistered path (Observing dispatch outcomes)', async () => {
+		const matched: Array<readonly [string, string]> = []
+		const missed: Array<readonly [string, string, string]> = []
+		const dispatcher = createDispatcher({
+			on: {
+				match: (method, pattern) => matched.push([method, pattern]),
+				miss: (method, pathname, status) => missed.push([method, pathname, status]),
+			},
+		})
+		dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
+		await dispatcher.handle(new Request('http://x/missing'), undefined)
+		expect(matched).toEqual([])
+		expect(missed).toEqual([['GET', '/missing', 'unmatched']])
+		dispatcher.destroy()
+	})
+
+	it('pins the literal path at the registration site (Typing a route input)', async () => {
+		const input = defineRoute({
+			method: 'GET',
+			path: '/users/:id',
+			handler: (_request, context) => new Response(context.params.id),
+		})
+		expect(input.path).toBe('/users/:id')
+
+		const dispatcher = createDispatcher()
+		dispatcher.add(input)
+		const response = await dispatcher.handle(new Request('http://x/users/7'), undefined)
+		expect(await response.text()).toBe('7')
+		dispatcher.destroy()
+	})
+
+	it('lists, filters, clears, and destroys (Introspection and reset)', () => {
+		const router = createRouter<{ readonly page: string }>()
+		router.add([
+			{ path: '/users/:id', meta: { page: 'profile' } },
+			{ path: '/tokens', meta: { page: 'tokens' } },
+		])
+		expect(router.entries()).toHaveLength(2)
+		expect(router.entries('/users/7')).toHaveLength(1)
+		router.clear()
+		expect(router.entries()).toHaveLength(0)
+
+		const dispatcher = createDispatcher()
+		dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
+		dispatcher.destroy()
+		expect(dispatcher.router.entries()).toHaveLength(1)
+	})
+})

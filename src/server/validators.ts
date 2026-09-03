@@ -1,14 +1,14 @@
 // ============================================================================
-//  Server guards — the §5 centralized home for the total `is*` narrows the
+//  Server guards — the centralized-file rule's home for the total `is*` narrows the
 //  `node:http` conversion seam applies to raw connection values. Every
-//  declaration here is total and `export`ed per AGENTS §5.
+//  declaration here is total and `export`ed per the centralized-file rule.
 // ============================================================================
 
 import { isRecord } from '@orkestrel/contract'
 
 /**
  * Determines whether a `node:http` connection socket is TLS-encrypted — the
- * total, never-throwing narrow (AGENTS §14) `buildRequest` uses to pick the
+ * total, never-throwing narrow `buildRequest` uses to pick the
  * derived scheme (`https` vs `http`).
  *
  * @param socket - The connection value to test (typically `message.socket`)

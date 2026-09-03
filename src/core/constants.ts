@@ -1,17 +1,17 @@
 // ============================================================================
-//  Core constants — the §5 centralized home for module-scope data used by the
-//  matching engine and the fetch dispatcher. Every declaration here is frozen
-//  and `export`ed per AGENTS §5.
+//  Core constants — the centralized-file rule's home for module-scope data used by
+//  the matching engine and the fetch dispatcher. Every declaration here is frozen
+//  and `export`ed per the centralized-file rule.
 // ============================================================================
 
 /**
- * Lists the HTTP methods a {@link import('./types.js').Dispatcher} registers
- * routes under, in canonical order — the single source the
+ * Lists the HTTP methods a {@link import('./types.js').DispatcherInterface}
+ * registers routes under, in canonical order — the single source the
  * {@link import('./types.js').Method} type, {@link METHODS}, and
  * `parseMethod` are all derived from.
  *
  * @remarks
- * A frozen tuple of the seven verbs: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`,
+ * A frozen tuple of the verbs: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`,
  * `HEAD`, `OPTIONS`. Adding a verb here widens the `Method` type, the
  * {@link METHODS} membership set, and the `parseMethod` narrowing together, so
  * the method set cannot drift between them. Prefer {@link METHODS} for a
@@ -34,13 +34,14 @@ export const METHOD_LIST = Object.freeze([
 ] as const)
 
 /**
- * Holds the complete set of HTTP methods a {@link import('./types.js').Dispatcher}
- * registers routes under — backs the registration guard (`add` rejects any
- * `method` outside this set) and the auto-`OPTIONS` `Allow` derivation.
+ * Holds the complete set of HTTP methods a
+ * {@link import('./types.js').DispatcherInterface} registers routes under —
+ * backs the registration guard (`add` rejects any `method` outside this set)
+ * and the auto-`OPTIONS` `Allow` derivation.
  *
  * @remarks
  * A `ReadonlySet` built from {@link METHOD_LIST}, so it carries exactly the
- * seven {@link import('./types.js').Method} literals: `GET`, `POST`, `PUT`,
+ * {@link import('./types.js').Method} literals: `GET`, `POST`, `PUT`,
  * `PATCH`, `DELETE`, `HEAD`, `OPTIONS`. `HEAD` is included even though it is
  * never required at registration (a `GET` route auto-answers `HEAD`) — it is
  * still a valid method to register explicitly. The element type stays `string`
@@ -60,7 +61,7 @@ export const METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD
  *
  * @remarks
  * Consumed by `computeSpecificity` (U1 `helpers.ts`) when ranking candidate
- * matches left-to-right at the earliest differing segment (§4 precedence).
+ * matches left-to-right at the earliest differing segment.
  *
  * @example
  * ```ts

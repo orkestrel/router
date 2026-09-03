@@ -1,7 +1,7 @@
 # Guides
 
 A dual-axis index into this repository's guides — by concept, and by
-directory (AGENTS §22).
+directory.
 
 ## By concept
 
@@ -20,20 +20,20 @@ directory (AGENTS §22).
 ## Dependency reference
 
 [`contract.md`](contract.md) is a byte-identical mirror of the guide for
-`@orkestrel/contract` — one of this package's runtime dependencies. It documents
+`@orkestrel/contract` — a runtime dependency. It documents
 **that package's** surface (guards, combinators, parsers, and the shape DSL), not
 anything sourced in this repo; it is kept here so a reader of this package can see
 the primitives it is built from without leaving this guide set.
 
 [`emitter.md`](emitter.md) is a byte-identical mirror of the guide for
-`@orkestrel/emitter` — this package's other runtime dependency. It documents
+`@orkestrel/emitter` — a runtime dependency. It documents
 **that package's** surface (the `Emitter` class, `EmitterInterface`, and the
 listener-isolation contract), not anything sourced in this repo; it is kept here
 so a reader of this package can see the primitives it is built from without
 leaving this guide set.
 
 [`abort.md`](abort.md) is a byte-identical mirror of the guide for
-`@orkestrel/abort` — this package's third runtime dependency. It documents
+`@orkestrel/abort` — a runtime dependency. It documents
 **that package's** surface (the `Abort` class, `AbortInterface`, and the
 parent-linking / cascading-cancellation contract), not anything sourced in
 this repo; it is kept here so a reader of this package can see the primitives
@@ -48,5 +48,4 @@ the primitives it is built from without leaving this guide set.
 
 ## See also
 
-- [`AGENTS.md`](../AGENTS.md) — the rules; §22 documentation-as-contracts.
-</content>
+- [`AGENTS.md`](../AGENTS.md) — the rules, including documentation as contracts.

@@ -45,8 +45,8 @@ export function createRouter<Meta>(options?: RouterOptions<Meta>): RouterInterfa
  * @typeParam TState - The consumer's opaque per-request state type (default
  *   `undefined` for stateless use)
  * @param options - Optional initial `routes`, the `sensitive` case toggle,
- *   the `unmatched`/`unmethoded` default-responder overrides, and the AGENTS
- *   §13 emitter `on`/`error` wiring
+ *   the `unmatched`/`unmethoded` default-responder overrides, and the
+ *   Emitter pattern's `on`/`error` wiring
  * @returns A {@link DispatcherInterface}
  *
  * @example

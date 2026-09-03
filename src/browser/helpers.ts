@@ -1,8 +1,8 @@
-// The PURE browser-navigation primitives (AGENTS §4.3 multi-word names — module
-// scope, no entity context). Every one is exported (the centralized-file rule,
-// §5): the `Navigator` composes them, and each has its own unit test. NO `node:*`
+// The PURE browser-navigation primitives (self-describing helper naming —
+// module scope, no entity context). Every one is exported (the centralized-file
+// rule): the `Navigator` composes them, and each has its own unit test. NO `node:*`
 // — DOM-typed only (`Location`, `Event`, `HTMLAnchorElement`), valid under the
-// `src:browser` scoped check (AGENTS §17.7).
+// `src:browser` scoped isolation check.
 
 import type { RouteEntry } from '@src/core'
 import { canonicalizePath } from '@src/core'
@@ -11,20 +11,21 @@ import { canonicalizePath } from '@src/core'
  * Computes the registry key for a browser navigation route.
  *
  * @remarks
- * Projects the nested route's path through the core engine's canonical
- * trailing-slash identity, so `/users` and `/users/` replace one another in
- * the Navigator's shared Router.
+ * Projects the route's path through the core engine's canonical trailing-slash
+ * identity, so `/users` and `/users/` replace one another in the Navigator's
+ * shared Router. The entry's `meta` payload is never read, so any payload type
+ * is accepted.
  *
- * @param entry - The outer Router entry carrying the Navigator route
- * @returns The nested route's canonical path
+ * @param entry - The Router entry carrying the Navigator route
+ * @returns The route's canonical path
  *
  * @example
  * ```ts
- * computeNavigationKey({ path: '/users/', meta: { path: '/users/' } }) // '/users'
+ * computeNavigationKey({ path: '/users/', meta: {} }) // '/users'
  * ```
  */
-export function computeNavigationKey(entry: RouteEntry<{ readonly path: string }>): string {
-	return canonicalizePath(entry.meta.path)
+export function computeNavigationKey(entry: RouteEntry<unknown>): string {
+	return canonicalizePath(entry.path)
 }
 
 /**
@@ -32,13 +33,13 @@ export function computeNavigationKey(entry: RouteEntry<{ readonly path: string }
  * leading `#` (keeping the route's own leading `/`) and any `?query` suffix.
  *
  * @remarks
- * The grammar this package matches everywhere is `/`-prefixed (§4 path
- * grammar), so a hash-mode location's `'#/users/7?x'` becomes `'/users/7'`
+ * The grammar this package matches everywhere is `/`-prefixed, so a hash-mode
+ * location's `'#/users/7?x'` becomes `'/users/7'`
  * — a hash pattern is expected to start `'#/'`; anything else (an empty hash,
  * or one that does not begin `'#/'`) yields `''` (the `Navigator` then falls
  * back). Total — never throws.
  *
- * @param hash - The raw `window.location.hash` value (e.g. `'#/users/7?x'`)
+ * @param hash - The raw `window.location.hash` value (for example `'#/users/7?x'`)
  * @returns The `/`-prefixed pathname to match, or `''` for an empty / non-`#/` hash
  *
  * @example
@@ -67,12 +68,12 @@ export function extractHashPath(hash: string): string {
  * `location.pathname` and strips a leading `base` prefix when one is
  * configured: `base` itself maps to the root `'/'`; a pathname that is not
  * under `base` is returned unchanged (a base mismatch is not this helper's
- * concern — the `Navigator`'s match then simply misses). Total — never throws.
+ * concern — the `Navigator`'s match then misses). Total — never throws.
  *
  * @param location - The `hash` + `pathname` pair to resolve from (accepts a
  *   real `Location` or any object shaped the same, for pure unit testing)
- * @param history - The navigation substrate: `false` for hash mode, `true`
- *   for history mode
+ * @param history - If `true`, the pathname is read from `location.pathname`
+ *   with `base` stripped; if `false`, it is read from `location.hash`
  * @param base - The history-mode path prefix to strip (ignored in hash mode;
  *   omit for no prefix)
  * @returns The `/`-prefixed pathname to match

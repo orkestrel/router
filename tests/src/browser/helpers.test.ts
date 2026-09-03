@@ -7,13 +7,17 @@ import {
 } from '../../../src/browser/helpers.js'
 import { safeClick } from '../../setupBrowser.js'
 
-// §16 mirror of `src/browser/helpers.ts` — the pure browser-navigation primitives:
+// The test mirror of `src/browser/helpers.ts` — the pure browser-navigation primitives:
 // hash → pathname extraction, current-location resolution across both navigation
 // modes, and the click-event → anchor lookup that backs link interception.
 
 describe('computeNavigationKey', () => {
-	it('projects the nested route through canonical path identity', () => {
-		expect(computeNavigationKey({ path: '/users/', meta: { path: '/users/' } })).toBe('/users')
+	it('projects the route path through canonical path identity', () => {
+		expect(computeNavigationKey({ path: '/users/', meta: {} })).toBe('/users')
+	})
+
+	it('leaves a path with no trailing slash unchanged', () => {
+		expect(computeNavigationKey({ path: '/users', meta: {} })).toBe('/users')
 	})
 })
 

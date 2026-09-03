@@ -5,7 +5,7 @@ import { Dispatcher } from '../../../src/core/Dispatcher.js'
 import { Router } from '../../../src/core/Router.js'
 import { createRecorder } from '@orkestrel/test'
 
-// §16 mirror of `src/core/factories.ts` — `createRouter`/`createDispatcher` round-trips
+// The test mirror of `src/core/factories.ts` — `createRouter`/`createDispatcher` round-trips
 // (instances satisfy their interfaces, options forwarded) plus their return-type assertions.
 
 interface PageMeta {

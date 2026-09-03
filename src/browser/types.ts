@@ -1,17 +1,17 @@
 // ============================================================================
-//  `Navigator` — the browser navigation face's public contract (the §5 source
+//  `Navigator` — the browser navigation face's public contract (the types.ts source
 //  of truth; the impl file holds only the class, every type lives here).
-//  Headless History/hash navigation over one core `Router<RouteEntry<Meta>>`:
+//  Headless History/hash navigation over one core `Router<Meta>`:
 //  it registers each route's PATTERN once through the shared matching engine,
 //  so `:param` extraction, literal-over-param precedence, and trailing-slash
 //  insensitivity all come from the SAME machine the core `Dispatcher` composes
-//  (AGENTS §21 "one engine, native overrides"). There is no `render`/`outlet` —
+//  (one shared engine, native overrides only for a genuine faster path). There is no `render`/`outlet` —
 //  the consumer (vanilla DOM, Vue, React) owns rendering; the `Navigator`
 //  resolves, tracks `active`, and emits `navigate`.
 //
 //  `EmitterHooks` / `EmitterErrorHandler` / `EmitterInterface` are imported as
-//  types from `@orkestrel/emitter` and never re-exported (AGENTS §6) —
-//  consumers import them directly from the emitter package. `RouteEntry` /
+//  types from `@orkestrel/emitter` and never re-exported — consumers import
+//  them directly from the emitter package. `RouteEntry` /
 //  `RouterInterface` / `RouterMatch` are imported from `@src/core` — the
 //  Navigator composes the SAME registry types the core `Router` and
 //  `Dispatcher` use, never a local re-declaration.
@@ -21,7 +21,7 @@ import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkes
 import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
 
 /**
- * Represents the `Navigator`'s event map (AGENTS §13) — the single `navigate` signal a
+ * Represents the `Navigator`'s event map — the single `navigate` signal a
  * consumer observes.
  *
  * @typeParam Meta - The opaque per-route payload the resolved match carries
@@ -30,7 +30,7 @@ import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
  * `navigate` fires once per successful resolution (start, hashchange/popstate,
  * `navigate()`, link interception) — never for a vetoed or superseded navigation
  * ({@link NavigatorOptions.guard}), and never when a miss's fallback also
- * misses (§21-honest: `active` is left `undefined`, nothing emitted).
+ * misses — honest to the one-shared-engine rule: `active` is left `undefined`, nothing emitted.
  */
 export type NavigatorEventMap<Meta> = {
 	readonly navigate: readonly [match: RouterMatch<Meta>]
@@ -38,7 +38,7 @@ export type NavigatorEventMap<Meta> = {
 
 /**
  * Represents the options for `createNavigator` — the `routes` to dispatch between, the
- * navigation substrate, the optional guard hook, and the AGENTS §13 emitter
+ * navigation substrate, the optional guard hook, and the Emitter pattern's
  * wiring.
  *
  * @typeParam Meta - The opaque payload each route may carry
@@ -55,20 +55,21 @@ export type NavigatorEventMap<Meta> = {
  * - `fallback` — the route PATTERN to resolve when the current location
  *   matches NOTHING. Omitted ⇒ the first route's path. A `fallback` that
  *   itself matches no registered route leaves `active` `undefined` and emits
- *   nothing (§21-honest: no phantom match is fabricated).
+ *   nothing — honest to the one-shared-engine rule: no phantom match is fabricated.
  * - `guard` — `(to, from, signal) => boolean | Promise<boolean>`, called
  *   before a navigation commits; a `false`/rejected verdict, or one arriving
  *   after the navigation was SUPERSEDED (`signal.aborted`), is discarded —
  *   `active` stays unchanged and nothing is emitted. `signal` fires when a
  *   NEWER navigation starts (or on `stop`/`destroy`), so a slow async guard
  *   can cancel its own work off it. A throw routes to the `error` handler
- *   below and vetoes the navigation.
+ *   described later in this list and vetoes the navigation.
  * - `intercept` — opt-in same-origin `<a>` click interception (history mode
  *   only): a plain left-click on a same-origin link with no modifier keys,
  *   no `target`, and no `download` attribute is intercepted into `navigate`.
  * - `sensitive` — forwarded to the underlying `Router` (default `true`).
- * - `on` — initial `NavigatorEventMap` listeners (AGENTS §8/§13).
- * - `error` — the emitter's listener-error handler (AGENTS §13); ALSO the
+ * - `on` — initial `NavigatorEventMap` listeners (the Emitter pattern's
+ *   similar-surface pin).
+ * - `error` — the emitter's listener-error handler; ALSO the
  *   handler a thrown {@link guard} routes to (the Navigator's own pipeline,
  *   not a listener throw, so it is surfaced through the same channel).
  */
@@ -89,18 +90,18 @@ export interface NavigatorOptions<Meta> {
 }
 
 /**
- * Represents the headless History/hash navigation entity contract (the §4.5 behavioral-
+ * Represents the headless History/hash navigation entity contract (the behavioral-
  * interface role for the one-class-per-file `Navigator`). Composes a core
- * `Router<RouteEntry<Meta>>`, resolves the current location on `start()` and
+ * `Router<Meta>`, resolves the current location on `start()` and
  * on every subsequent navigation event, tracks `active`, and emits
- * `navigate` through the AGENTS §13 {@link EmitterInterface}.
+ * `navigate` through the {@link EmitterInterface}.
  *
  * @typeParam Meta - The opaque per-route payload a match carries back
  *
  * @remarks
  * - `router` — the underlying registry, exposed READONLY for introspection
  *   (the same object routes were registered on).
- * - `emitter` — the AGENTS §13 observable surface for {@link NavigatorEventMap}.
+ * - `emitter` — the observable surface for {@link NavigatorEventMap}.
  * - `active` — the currently-resolved {@link RouterMatch}, or `undefined`
  *   before the first resolve (or when a miss's fallback also misses).
  * - `start()` — begin listening (`hashchange` in hash mode; `popstate` +
@@ -113,10 +114,10 @@ export interface NavigatorOptions<Meta> {
  *   no `hashchange` would otherwise fire.
  * - `match(path)` — a PURE lookup through the underlying `Router`: no
  *   location read, no fallback, no guard, no emit.
- * - `destroy()` — `stop()` plus tear down the `#emitter` (AGENTS §13).
+ * - `destroy()` — `stop()` plus tear down the `#emitter`.
  */
 export interface NavigatorInterface<Meta> {
-	readonly router: RouterInterface<RouteEntry<Meta>>
+	readonly router: RouterInterface<Meta>
 	readonly emitter: EmitterInterface<NavigatorEventMap<Meta>>
 	readonly active: RouterMatch<Meta> | undefined
 	start(): void

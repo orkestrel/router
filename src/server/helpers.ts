@@ -1,7 +1,7 @@
 // ============================================================================
 //  Pure conversion between `node:http` and the fetch vocabulary the core
-//  `Dispatcher` speaks — no lifecycle and no listener ownership (§5.3). Every
-//  function is exported per AGENTS §5.
+//  `Dispatcher` speaks — no lifecycle and no listener ownership. Every
+//  function is exported per the centralized-file rule.
 // ============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -12,7 +12,7 @@ import { isEncryptedSocket } from './validators.js'
 
 /**
  * Builds a fetch-standard `Request` from a `node:http` `IncomingMessage` — the
- * server-adapter half of the §5.3 conversion seam.
+ * server-adapter half of the fetch/node conversion seam.
  *
  * @remarks
  * - `method` is carried over verbatim (defaulting to `GET` when absent).
@@ -37,7 +37,7 @@ import { isEncryptedSocket } from './validators.js'
  *
  * @param message - The raw `node:http` request
  * @param options - Optional `origin` override and paired `response` for
- *   response-side disconnect tracking (§5.3 {@link RequestOptions})
+ *   response-side disconnect tracking ({@link RequestOptions})
  * @returns A fetch `Request` whose `signal` fires on an incomplete request, or
  *   on a response-side client disconnect when `options.response` is provided
  *
@@ -101,11 +101,11 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
 
 /**
  * Writes a fetch-standard `Response` back to a `node:http` `ServerResponse` —
- * the reverse half of the §5.3 conversion seam.
+ * the reverse half of the fetch/node conversion seam.
  *
  * @remarks
  * Writes `status`/`statusText`, then every response header (`set-cookie`
- * written via {@link Headers.getSetCookie} so multiple cookies stay distinct
+ * written through {@link Headers.getSetCookie} so multiple cookies stay distinct
  * instead of collapsing into one comma-joined header), then streams the web
  * body to `target` chunk by chunk (`for await` over `response.body`), ending
  * `target` when the stream completes. When a write reports backpressure, the
@@ -118,7 +118,7 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  *
  * @param response - The fetch `Response` to write
  * @param target - The `node:http` response to write it to
- * @returns A promise that resolves once `target` has been ended (or the
+ * @returns A promise that resolves after `target` has been ended (or the
  *   stream stopped because `target` was destroyed)
  *
  * @example

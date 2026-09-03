@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseMethod } from '../../../src/core/parsers.js'
 import { METHOD_LIST } from '../../../src/core/constants.js'
 
-// §16 mirror of `src/core/parsers.ts` — pins the raw-method narrowing leaf:
+// The test mirror of `src/core/parsers.ts` — pins the raw-method narrowing leaf:
 // every registrable verb narrows, an unknown verb and the wrong casing both
 // resolve to `undefined`, and the accepted set is exactly `METHOD_LIST` so a
 // verb added to the constant cannot leave this coercer behind.

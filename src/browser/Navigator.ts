@@ -1,18 +1,18 @@
 import type { NavigatorEventMap, NavigatorInterface, NavigatorOptions } from './types.js'
 import type { AbortInterface } from '@orkestrel/abort'
 import type { EmitterErrorHandler, EmitterInterface } from '@orkestrel/emitter'
-import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
+import type { RouterInterface, RouterMatch } from '@src/core'
 import { createAbort } from '@orkestrel/abort'
 import { Emitter } from '@orkestrel/emitter'
-import { isFunction, isString } from '@orkestrel/contract'
+import { ContractError, isFunction, isString, preview } from '@orkestrel/contract'
 import { createRouter, joinPaths } from '@src/core'
 import { computeNavigationKey, findAnchor, resolveLocationPath } from './helpers.js'
 
 /**
  * Represents the headless History/hash navigation entity — composes one core
- * `Router<RouteEntry<Meta>>`, resolving the current location on `start()` and
+ * `Router<Meta>`, resolving the current location on `start()` and
  * every subsequent navigation event, tracking `active`, and emitting
- * `navigate` through the core {@link Emitter} (AGENTS §13). No `render` /
+ * `navigate` through the core {@link Emitter}. No `render` /
  * `outlet` — the consumer owns rendering.
  *
  * @typeParam Meta - The opaque per-route payload a match carries back
@@ -22,14 +22,13 @@ import { computeNavigationKey, findAnchor, resolveLocationPath } from './helpers
  *   `Router` machine the core `Dispatcher` composes, keyed for dedup by its
  *   {@link canonicalizePath} (last write wins, replace-in-place) — literal-
  *   over-param precedence, trailing-slash insensitivity, and
- *   `:param`/`*wildcard` extraction all come from that one engine (AGENTS
- *   §21).
+ *   `:param`/`*wildcard` extraction all come from that one shared engine.
  * - **Resolve pipeline.** Compute the `/`-prefixed pathname to match
  *   ({@link resolveLocationPath}) → {@link match} it → on a miss, match the
  *   `fallback` through the SAME engine → a fallback that ALSO matches nothing
  *   aborts any pending guarded navigation (a miss SUPERSEDES it, same as a
- *   newer navigation) and leaves `active` `undefined`, emitting nothing
- *   (§21-honest: no phantom match is fabricated) → the optional `guard` may
+ *   newer navigation) and leaves `active` `undefined`, emitting nothing —
+ *   honest to the one-shared-engine rule: no phantom match is fabricated → the optional `guard` may
  *   veto → on a verdict, `active` is set and `navigate` emitted.
  * - **Supersede-safe guard.** Every navigation mints an `@orkestrel/abort`
  *   handle, aborting the PREVIOUS navigation's handle first; a guard verdict
@@ -56,7 +55,7 @@ import { computeNavigationKey, findAnchor, resolveLocationPath } from './helpers
  * ```
  */
 export class Navigator<Meta> implements NavigatorInterface<Meta> {
-	readonly #router: RouterInterface<RouteEntry<Meta>>
+	readonly #router: RouterInterface<Meta>
 	readonly #emitter: Emitter<NavigatorEventMap<Meta>>
 	readonly #history: boolean
 	readonly #base: string | undefined
@@ -64,8 +63,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	readonly #guard: NavigatorOptions<Meta>['guard']
 	readonly #error: EmitterErrorHandler | undefined
 	readonly #intercept: boolean
-	readonly #hashListener: () => void
-	readonly #popListener: () => void
+	readonly #listener: () => void
 	readonly #clickListener: (event: MouseEvent) => void
 	#active: RouterMatch<Meta> | undefined
 	#started = false
@@ -73,15 +71,32 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 
 	constructor(options: NavigatorOptions<Meta>) {
 		if (options.guard !== undefined && !isFunction(options.guard))
-			throw new TypeError(
-				`a navigator guard must be a function, got ${JSON.stringify(options.guard)}`,
-			)
+			throw new ContractError('a navigator guard must be a function when defined', {
+				code: 'literal',
+				context: {
+					path: ['options', 'guard'],
+					limit: 'function or undefined',
+					received: preview(options.guard),
+				},
+			})
 		if (options.fallback !== undefined && !isString(options.fallback))
-			throw new TypeError(
-				`a navigator fallback must be a string, got ${JSON.stringify(options.fallback)}`,
-			)
+			throw new ContractError('a navigator fallback must be a string when defined', {
+				code: 'literal',
+				context: {
+					path: ['options', 'fallback'],
+					limit: 'string or undefined',
+					received: preview(options.fallback),
+				},
+			})
 		if (options.base !== undefined && !isString(options.base))
-			throw new TypeError(`a navigator base must be a string, got ${JSON.stringify(options.base)}`)
+			throw new ContractError('a navigator base must be a string when defined', {
+				code: 'literal',
+				context: {
+					path: ['options', 'base'],
+					limit: 'string or undefined',
+					received: preview(options.base),
+				},
+			})
 		this.#history = options.history ?? false
 		this.#base = options.base
 		this.#intercept = options.intercept ?? false
@@ -91,22 +106,17 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 			...(options.on === undefined ? {} : { on: options.on }),
 			...(options.error === undefined ? {} : { error: options.error }),
 		})
-		this.#router = createRouter<RouteEntry<Meta>>({
-			entries: options.routes.map((route) => ({
-				path: route.path,
-				meta: route,
-				...(route.name === undefined ? {} : { name: route.name }),
-			})),
+		this.#router = createRouter<Meta>({
+			entries: options.routes,
 			...(options.sensitive === undefined ? {} : { sensitive: options.sensitive }),
 			key: computeNavigationKey,
 		})
 		this.#fallback = options.fallback ?? options.routes[0]?.path
-		this.#hashListener = this.#resolve.bind(this)
-		this.#popListener = this.#resolve.bind(this)
+		this.#listener = this.#resolve.bind(this)
 		this.#clickListener = this.#intercepted.bind(this)
 	}
 
-	get router(): RouterInterface<RouteEntry<Meta>> {
+	get router(): RouterInterface<Meta> {
 		return this.#router
 	}
 
@@ -122,9 +132,9 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 		if (this.#started) return
 		this.#started = true
 		if (!this.#history) {
-			window.addEventListener('hashchange', this.#hashListener)
+			window.addEventListener('hashchange', this.#listener)
 		} else {
-			window.addEventListener('popstate', this.#popListener)
+			window.addEventListener('popstate', this.#listener)
 			if (this.#intercept) document.addEventListener('click', this.#clickListener)
 		}
 		this.#resolve()
@@ -134,9 +144,9 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 		if (!this.#started) return
 		this.#started = false
 		if (!this.#history) {
-			window.removeEventListener('hashchange', this.#hashListener)
+			window.removeEventListener('hashchange', this.#listener)
 		} else {
-			window.removeEventListener('popstate', this.#popListener)
+			window.removeEventListener('popstate', this.#listener)
 			if (this.#intercept) document.removeEventListener('click', this.#clickListener)
 		}
 		this.#current?.abort()
@@ -155,14 +165,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	}
 
 	match(path: string): RouterMatch<Meta> | undefined {
-		const hit = this.#router.match(path)
-		if (hit === undefined) return undefined
-		return {
-			path: hit.path,
-			params: hit.params,
-			meta: hit.meta.meta,
-			...(hit.meta.name === undefined ? {} : { name: hit.meta.name }),
-		}
+		return this.#router.match(path)
 	}
 
 	destroy(): void {
@@ -175,7 +178,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	// Compute the pathname to match for the CURRENT location, resolve it (falling back to the
 	// configured fallback through the SAME engine on a miss), and either navigate or — when
 	// neither the location nor the fallback matches anything — leave `active` `undefined` with
-	// no emit (§21-honest: no phantom match is fabricated).
+	// no emit, honest to the one-shared-engine rule: no phantom match is fabricated.
 	#resolve(): void {
 		const pathname = resolveLocationPath(
 			{ hash: window.location.hash, pathname: window.location.pathname },
@@ -217,7 +220,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	}
 
 	// Await the guard's verdict; a throw routes to the `error` handler and vetoes, a discarded
-	// verdict (superseded via `handle.signal.aborted`, or a plain `false`/rejected verdict) leaves
+	// verdict (superseded through `handle.signal.aborted`, or a plain `false`/rejected verdict) leaves
 	// `active` unchanged with no emit, and a true verdict commits.
 	async #guarded(
 		guard: NonNullable<NavigatorOptions<Meta>['guard']>,
@@ -236,7 +239,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 		this.#commit(to)
 	}
 
-	// Route a guard throw to the `error` handler (AGENTS §13's own channel, not a listener
+	// Route a guard throw to the `error` handler (the Emitter pattern's own channel, not a listener
 	// throw so it cannot flow through the emitter's `emit`), swallowing a throwing handler itself
 	// (anti-recursion, mirroring the emitter's own contract).
 	#surface(error: unknown): void {
@@ -249,7 +252,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 		}
 	}
 
-	// Same-origin `<a>` click interception (history mode, opt-in via `intercept`): skip an
+	// Same-origin `<a>` click interception (history mode, opt-in through `intercept`): skip an
 	// already-handled event, a non-primary button, any modifier key, a targeted or download link,
 	// or a cross-origin destination — otherwise prevent the native navigation and `navigate` instead.
 	#intercepted(event: MouseEvent): void {

@@ -17,7 +17,7 @@ describe('createTestBody', () => {
 		expect(fixture.pulls).toBe(3)
 	})
 
-	it('reports a live pull total that grows as the stream is consumed, not only once fully drained', async () => {
+	it('reports a live pull total that grows as the stream is consumed, not only after it is fully drained', async () => {
 		const chunk = new Uint8Array([9])
 		const fixture = createTestBody(chunk, 2)
 		expect(fixture.pulls).toBe(0)

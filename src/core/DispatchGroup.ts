@@ -10,9 +10,9 @@ import { joinPaths } from './helpers.js'
  *   the owning dispatcher
  *
  * @remarks
- * Every `add` composes `input.path` via {@link joinPaths} against
- * `this.prefix` and forwards to the OWNING dispatcher's `add` (its own §14
- * boundary guard still applies). Pure string composition (§4.2.2) — no
+ * Every `add` composes `input.path` through {@link joinPaths} against
+ * `this.prefix` and forwards to the OWNING dispatcher's `add` (its own
+ * registration boundary guard still applies). Pure string composition — no
  * independent state or storage.
  *
  * @example

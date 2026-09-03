@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { RouteContext } from '../../../src/core/types.js'
+import { ContractError } from '@orkestrel/contract'
 import {
 	canonicalizePath,
 	classifySegment,
@@ -7,17 +8,17 @@ import {
 	compilePath,
 	computeDispatchKey,
 	decodeParam,
+	defineRoute,
 	escapeRegExp,
 	joinPaths,
 	matchPath,
 	computeSpecificity,
-	route,
 } from '../../../src/core/helpers.js'
 
-// §16 mirror of `src/core/helpers.ts` — pins every pure path-matching primitive:
+// The test mirror of `src/core/helpers.ts` — pins every pure path-matching primitive:
 // compile/match round-trips, `:`/`*` captures, tolerant decode, trailing-slash +
 // root exemptions, the case-sensitivity flag, the wildcard-mid-path guard, and
-// the specificity classification fix (§4) that shares one segment parser with
+// the specificity classification fix that shares one segment parser with
 // `compilePath`.
 
 describe('escapeRegExp', () => {
@@ -99,12 +100,18 @@ describe('compilePath — `*name` wildcard captures', () => {
 		expect(compiled.regex.exec('/files/a.png')?.[1]).toBe('a.png')
 	})
 
-	it('throws TypeError when a wildcard segment is not the final segment', () => {
-		expect(() => compilePath('/files/*rest/more')).toThrow(TypeError)
+	it('throws a ContractError coded `placement` when a wildcard segment is not the final segment', () => {
+		expect(() => compilePath('/files/*rest/more')).toThrow(ContractError)
+		expect(() => compilePath('/files/*rest/more')).toThrow(
+			expect.objectContaining({ code: 'placement' }),
+		)
 	})
 
-	it('throws TypeError for a wildcard mid-path even with a following literal', () => {
-		expect(() => compilePath('/*rest/users')).toThrow(TypeError)
+	it('throws a ContractError for a wildcard mid-path even with a following literal', () => {
+		expect(() => compilePath('/*rest/users')).toThrow(ContractError)
+		expect(() => compilePath('/*rest/users')).toThrow(
+			expect.objectContaining({ code: 'placement' }),
+		)
 	})
 })
 
@@ -292,19 +299,19 @@ describe('joinPaths', () => {
 	})
 })
 
-describe('route', () => {
+describe('defineRoute', () => {
 	it('returns its input unchanged (same reference)', () => {
-		const input = route({
+		const input = defineRoute({
 			method: 'GET',
 			path: '/users/:id',
 			handler: (_request: Request, context: RouteContext<'/users/:id'>) =>
 				new Response(context.params.id),
 		})
-		expect(route(input)).toBe(input)
+		expect(defineRoute(input)).toBe(input)
 	})
 
 	it('preserves the literal Path so context.params types correctly at the registration site', () => {
-		const input = route({
+		const input = defineRoute({
 			method: 'GET',
 			path: '/users/:id',
 			handler: (_request, context) => {

@@ -8,8 +8,8 @@ import { createRecorder, waitForCondition } from '@orkestrel/test'
 import { createTestBody } from '../../setup.js'
 import { countResponseListeners, startPausedResponse, startServer } from '../../setupServer.js'
 
-// §16 mirror of `src/server/helpers.ts` — pins the conversion pair over REAL
-// sockets (no mocks, §16): `buildRequest` fidelity, client-disconnect →
+// The test mirror of `src/server/helpers.ts` — pins the conversion pair over REAL
+// sockets (no mocks): `buildRequest` fidelity, client-disconnect →
 // `request.signal` abort, and `sendResponse` writing, including backpressure
 // and a destroyed target.
 
@@ -157,23 +157,28 @@ describe('buildRequest', () => {
 
 	it('aborts request.signal when the client disconnects before the message completes', async () => {
 		const recorder = createRecorder<[unknown]>()
+		const entered = Promise.withResolvers<void>()
+		const aborted = Promise.withResolvers<void>()
 		const server = await startServer((incoming, response) => {
 			const request = buildRequest(incoming)
-			request.signal.addEventListener('abort', () => recorder.handler(request.signal.reason))
+			request.signal.addEventListener('abort', () => {
+				recorder.handler(request.signal.reason)
+				aborted.resolve()
+			})
 			// Never respond — the test disconnects before this handler would finish.
 			void response
+			entered.resolve()
 		})
-		await new Promise<void>((resolve) => {
-			const socket = net.connect(server.port, '127.0.0.1', () => {
-				// Content-Length promises more body than is sent, then the socket is
-				// destroyed before the message completes.
-				socket.write('POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\npartial')
-			})
-			setTimeout(() => {
-				socket.destroy()
-				setTimeout(resolve, 50)
-			}, 20)
+		const socket = net.connect(server.port, '127.0.0.1', () => {
+			// Content-Length promises more body than is sent, then the socket is
+			// destroyed before the message completes.
+			socket.write('POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\npartial')
 		})
+		// Park on the server having read the partial message, then on the real abort — no fixed
+		// delay, so the case measures the abort behaviour rather than host timing.
+		await entered.promise
+		socket.destroy()
+		await aborted.promise
 		await server.close()
 
 		expect(recorder.count).toBe(1)

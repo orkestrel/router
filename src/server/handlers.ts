@@ -1,8 +1,8 @@
 // ============================================================================
-//  Server request handlers — the §5 centralized home for the functions that
+//  Server request handlers — the centralized-file rule's home for the functions that
 //  run one `node:http` exchange through a core `Dispatcher`, plus the listener
-//  the whole server face hands to `http.createServer` (§5.3). Every function
-//  is exported per AGENTS §5.
+//  the whole server face hands to `http.createServer`. Every function
+//  is exported per the centralized-file rule.
 // ============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -56,19 +56,19 @@ export async function handleListenerRequest<TState>(
 
 /**
  * Creates a `node:http` request listener over a core {@link DispatcherInterface} —
- * the whole server face's entry point (§5.3): converts the incoming message to
+ * the whole server face's entry point: converts the incoming message to
  * a fetch `Request`, hands it to the dispatcher with the consumer's per-request
  * `state`, and writes the resulting `Response` back.
  *
  * @remarks
  * A rejected `dispatcher.handle` (a route handler throw — the dispatcher
- * never invents an error boundary, §5.1) is this listener's transport-level
+ * never invents an error boundary) is this listener's transport-level
  * LAST RESORT, distinct from an application error boundary: when nothing has
  * been sent yet, it destroys the connection with a bare `500` head (never
- * leaking a hanging socket); once headers are already sent, it destroys the
+ * leaking a hanging socket); after headers are already sent, it destroys the
  * connection outright. The router still owns no error POLICY — a consumer
  * that wants mapped error responses installs its own boundary around
- * `dispatcher.handle` (the future `@orkestrel/server` seam, §7).
+ * `dispatcher.handle` (the future `@orkestrel/server` seam).
  *
  * @typeParam TState - The consumer's opaque per-request state type
  * @param dispatcher - The core dispatcher to run each converted request through

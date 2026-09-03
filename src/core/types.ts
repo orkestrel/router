@@ -1,5 +1,5 @@
 // ============================================================================
-//  The core matching engine + fetch dispatcher — type definitions (the §5
+//  The core matching engine + fetch dispatcher — type definitions (the types.ts
 //  source of truth). `Router` is a PURE, environment-agnostic registry-and-
 //  match engine: it compiles route path patterns, extracts URL-decoded params,
 //  ranks candidates by specificity, and exposes the `answers` predicate as the
@@ -9,7 +9,8 @@
 //  `node:*` — only `URL` / `Request` / `Response` / `AbortSignal`, universal
 //  web-standard globals available in every runtime this package targets.
 //
-//  Type groups, all `readonly` per AGENTS §11:
+//  Type groups, all `readonly` because an interface property and a public
+//  return collection stay readonly:
 //
 //    1. Path grammar typing — {@link PathParams}, the template-literal param
 //       extraction that gives handlers a typed `context.params`.
@@ -24,8 +25,8 @@
 //       {@link DispatchGroupInterface} — the fetch-standard dispatch entity.
 //
 //  `EmitterHooks` / `EmitterErrorHandler` / `EmitterInterface` are imported as
-//  types from `@orkestrel/emitter` and never re-exported (AGENTS §6) —
-//  consumers import them directly from the emitter package.
+//  types from `@orkestrel/emitter` and never re-exported — consumers import
+//  them directly from the emitter package.
 // ============================================================================
 
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
@@ -129,9 +130,9 @@ export type IdentifierHead<S extends string> = S extends `${infer Head}${infer T
 
 // One path SEGMENT's param contribution — the type-level mirror of the runtime `classifySegment`
 // + `compilePath` segment parser (`helpers.ts`): a `:` HEAD followed by an identifier captures
-// that identifier (stopping at the first non-identifier char, e.g. `:name.json` captures only
+// that identifier (stopping at the first non-identifier char, for example `:name.json` captures only
 // `name`); a segment whose `:` is NOT at the segment start (`a:b`) is LITERAL and captures
-// nothing — the fix this type mirrors (§4). A `*name` segment (only valid as the grammar's FINAL
+// nothing — the fix this type mirrors. A `*name` segment (only valid as the grammar's FINAL
 // segment, unchanged from before) captures the identifier the same way. A non-capturing segment
 // resolves to `unknown` (the intersection IDENTITY) rather than `Record<string, never>` — an
 // index-signature type intersected with a later `{ id: string }` would otherwise conflict
@@ -160,12 +161,12 @@ export type SegmentParam<Segment extends string> = Segment extends `:${infer Res
  *
  * @remarks
  * Splits `Path` at its first `/` into `Segment` + `Rest`, intersects
- * `SegmentParam<Segment>` with the recursive walk of `Rest`, and — once no
+ * `SegmentParam<Segment>` with the recursive walk of `Rest`, and — after no
  * further `/` remains — resolves the final segment's own `SegmentParam`
  * directly. `SegmentParam` mirrors the runtime `classifySegment` grammar
  * exactly: a `:name` HEAD (identifier-char run, stopping at the first
  * non-identifier char) captures a param; a segment whose `:` is not at the
- * segment START (`a:b`) contributes nothing (the classification fix, §4); a
+ * segment START (`a:b`) contributes nothing (the classification fix); a
  * final `*name` wildcard captures the rest-of-path param the same way. A
  * fully parameterless `Path` resolves to `unknown` here (the intersection
  * identity every non-capturing segment contributes) — {@link PathParams}
@@ -182,7 +183,7 @@ export type PathParamsRaw<Path extends string> = string extends Path
 
 /**
  * Extracts `{ name: string }` param records from a path pattern at the type
- * level — the typed half of the path grammar (§4).
+ * level — the typed half of the path grammar.
  *
  * @typeParam Path - A route path pattern literal (`/users/:id/posts/:slug`,
  *   `/files/*rest`, or a parameterless literal path)
@@ -212,7 +213,7 @@ export type PathParams<Path extends string> = {
  * @remarks
  * The once-per-path compile output of `compilePath` (U1 `helpers.ts`):
  * `regex` is anchored (`^…$`) and matches the WHOLE pathname (with an
- * optional trailing slash, §4), and `params` lists each captured segment's
+ * optional trailing slash), and `params` lists each captured segment's
  * name (`:name` or the final `*name`) in order, so a `regex.exec` result's
  * capture groups line up with `params` positionally (the walk `matchPath`
  * performs). Plain data — no behavior.
@@ -258,7 +259,7 @@ export interface RouteEntry<Meta> {
  * pathname that was matched) — useful for consumers that need to know which
  * route fired. `params` is a frozen `name → value` record (empty for a
  * parameterless path), each value URL-decoded with a malformed `%` escape
- * tolerated as a literal (§4, never throws). Plain data — no behavior.
+ * tolerated as a literal, never throws. Plain data — no behavior.
  */
 export interface RouterMatch<Meta> {
 	readonly path: string
@@ -279,7 +280,7 @@ export interface RouterMatch<Meta> {
  * === requestMethod`), the `Navigator` omits the predicate entirely (every
  * path match always answers). Passed per-call to {@link RouterInterface.match};
  * when omitted, every entry whose path matches is eligible. Total — it never
- * throws (a consumer keeps it pure, per AGENTS §14 guard totality).
+ * throws, so a consumer keeps it pure.
  */
 export type AnswerHandler<Meta> = (meta: Meta) => boolean
 
@@ -293,7 +294,7 @@ export type AnswerHandler<Meta> = (meta: Meta) => boolean
  * - `entries` — the initial `{ path, meta, name? }` entries to register (each
  *   path compiled once), equivalent to a bare `createRouter()` followed by
  *   `add(entries)`. Omitted ⇒ an empty router.
- * - `sensitive` — case-sensitive path matching (default `true`, §4). Set
+ * - `sensitive` — case-sensitive path matching (default `true`). Set
  *   `false` to fold case during matching (`/Users` matches `/users`);
  *   registered patterns are never case-folded in storage, only in matching.
  * - `key` — an optional dedup identity function computed per entry
@@ -309,19 +310,19 @@ export interface RouterOptions<Meta> {
 }
 
 /**
- * Represents the path-matching + registry engine contract (the §4.5 behavioral-interface
+ * Represents the path-matching + registry engine contract (the behavioral-interface
  * role for the one-class-per-file `Router`). Registers `{ path, meta, name? }`
  * entries (compiling each path once) and resolves a concrete pathname to the
  * MOST SPECIFIC matching entry — a literal segment beats a param beats a
- * wildcard at the earliest differing segment, registration-order-independent
- * (§4). The shared engine both the `Navigator` (browser) and the `Dispatcher`
+ * wildcard at the earliest differing segment, registration-order-independent.
+ * The shared engine both the `Navigator` (browser) and the `Dispatcher`
  * (core, method-dimensioned) compose.
  *
  * @typeParam Meta - The opaque payload each entry carries and a match returns
  *
  * @remarks
  * - `count` — the number of registered entries.
- * - `add(entry)` / `add(entries)` — register ONE / MANY entries (§9.2 batch);
+ * - `add(entry)` / `add(entries)` — register ONE / MANY entries (batch registration);
  *   each path is compiled once here. When constructed with a `key` option,
  *   an entry whose key already exists replaces the prior one in place;
  *   otherwise every entry is kept, even duplicate paths.
@@ -332,11 +333,11 @@ export interface RouterOptions<Meta> {
  *   eligible.
  * - `entries()` — ALL registered entries in registration order.
  * - `entries(pathname)` — only entries whose path matches `pathname` (the
- *   §9 plural accessor's filtered form; backs a consumer's allow/405 set).
+ *   plural accessor's filtered form; backs a consumer's allow/405 set).
  * - `group(prefix)` — a {@link GroupInterface} scoped under `prefix`; entries
  *   added through the group are registered on this same router with `prefix`
  *   prepended to each path.
- * - `clear()` — drop every entry (§10), leaving the router reusable.
+ * - `clear()` — drop every entry, leaving the router reusable.
  */
 export interface RouterInterface<Meta> {
 	readonly count: number
@@ -351,7 +352,7 @@ export interface RouterInterface<Meta> {
 
 /**
  * Represents a prefix-scoped registration handle over a {@link RouterInterface} — pure
- * string composition (§4.2.2), no independent state or storage.
+ * string composition, no independent state or storage.
  *
  * @typeParam Meta - The entry payload type, matching the owning router
  *
@@ -360,7 +361,7 @@ export interface RouterInterface<Meta> {
  *   registers (and to every nested group's own prefix).
  * - `add(entry)` / `add(entries)` — register ONE / MANY entries on the
  *   OWNING router, each entry's `path` composed as `prefix + entry.path`
- *   (§9.2 batch, mirroring {@link RouterInterface.add}).
+ *   (batch registration, mirroring {@link RouterInterface.add}).
  * - `group(prefix)` — a nested group whose prefix is `this.prefix + prefix`;
  *   nesting composes prefixes left to right with no depth limit.
  */
@@ -372,7 +373,7 @@ export interface GroupInterface<Meta> {
 }
 
 /**
- * Names the seven HTTP methods a {@link DispatcherInterface} dimensions dispatch
+ * Names the HTTP methods a {@link DispatcherInterface} dimensions dispatch
  * over — derived from {@link import('./constants.js').METHOD_LIST}, whose
  * membership counterpart is {@link import('./constants.js').METHODS}.
  *
@@ -381,9 +382,8 @@ export interface GroupInterface<Meta> {
  * 'OPTIONS'`. Deriving the union from the constant keeps one home for the
  * method set: a verb added there widens this type, the membership set, and the
  * `parseMethod` narrowing together. `HEAD` is a valid explicit registration
- * even though a `GET` route already auto-answers `HEAD` (§5.1 dispatch
- * semantics) — an explicit `HEAD` handler always takes precedence over the
- * derived one.
+ * even though a `GET` route already auto-answers `HEAD` — an explicit
+ * `HEAD` handler always takes precedence over the derived one.
  */
 export type Method = (typeof METHOD_LIST)[number]
 
@@ -393,11 +393,11 @@ export type Method = (typeof METHOD_LIST)[number]
  * consumer's opaque per-request state.
  *
  * @typeParam Path - The route path pattern the handler was registered under
- *   (drives the typed shape of `params` via {@link PathParams})
+ *   (drives the typed shape of `params` through {@link PathParams})
  * @typeParam TState - The consumer's opaque per-request state type
  *
  * @remarks
- * - `params` — the decoded param record, typed from `Path` via
+ * - `params` — the decoded param record, typed from `Path` through
  *   {@link PathParams} (empty for a parameterless path).
  * - `pattern` — the winning REGISTERED pattern (matches
  *   {@link RouterMatch.path}), useful for logging/metrics.
@@ -422,7 +422,7 @@ export interface RouteContext<Path extends string = string, TState = undefined> 
  * @remarks
  * A handler throw propagates to the caller of `dispatcher.handle` — the
  * dispatcher never invents an error boundary; mapping throws to responses is
- * the consuming server's policy (§5.1).
+ * the consuming server's policy.
  */
 export type RouteHandler<Path extends string = string, TState = undefined> = (
 	request: Request,
@@ -434,7 +434,7 @@ export type RouteHandler<Path extends string = string, TState = undefined> = (
  * method-dimensioned counterpart of {@link RouteEntry}.
  *
  * @typeParam Path - The route path pattern literal (drives the typed
- *   `handler`'s `context.params` via {@link PathParams})
+ *   `handler`'s `context.params` through {@link PathParams})
  * @typeParam TState - The consumer's opaque per-request state type
  *
  * @remarks
@@ -471,7 +471,7 @@ export interface RouteRecord<TState> {
 
 /**
  * Represents the outcome of {@link DispatcherInterface.match} — a discriminated union
- * over the three dispatch tiers: a full hit, a path-matches-but-method-
+ * over the dispatch tiers: a full hit, a path-matches-but-method-
  * doesn't (405 territory), or nothing matched at all (404 territory).
  *
  * @typeParam TState - The consumer's opaque per-request state type
@@ -490,13 +490,14 @@ export type DispatchResult<TState> =
 	| { readonly status: 'unmatched' }
 
 /**
- * Represents the `Dispatcher`'s event map (AGENTS §13) — the two dispatch-outcome
+ * Represents the `Dispatcher`'s event map — the dispatch-outcome
  * signals a consumer can observe alongside the return value of `handle`.
  *
  * @remarks
- * - `match` — emitted on every dispatch that resolves to a handler
- *   (including the auto-`HEAD`/auto-`OPTIONS` derived cases): the request
- *   `method` and the winning `pattern`.
+ * - `match` — emitted on every dispatch the dispatcher answers, the derived
+ *   `HEAD` and `OPTIONS` cases included: the request `method` and the winning
+ *   `pattern` (for a derived `OPTIONS` answer, the most-specific pattern the
+ *   pathname resolved to).
  * - `miss` — emitted on every non-matching dispatch: the RAW request
  *   `method` (a plain `string`, not narrowed to {@link Method} — an unknown
  *   verb like `PURGE` is observable here exactly as sent, never coerced),
@@ -507,27 +508,28 @@ export type DispatchResult<TState> =
  */
 export type DispatcherEventMap = {
 	readonly match: readonly [method: Method, pattern: string]
-	readonly miss: readonly [method: string, pathname: string, reason: 'unmatched' | 'unmethoded']
+	readonly miss: readonly [method: string, pathname: string, status: 'unmatched' | 'unmethoded']
 }
 
 /**
- * Represents the options for `createDispatcher` — initial routes, case sensitivity, the two
- * default-responder overrides, and the AGENTS §13 emitter wiring.
+ * Represents the options for `createDispatcher` — initial routes, case sensitivity, the
+ * default-responder overrides, and the Emitter pattern's wiring.
  *
  * @typeParam TState - The consumer's opaque per-request state type
  *
  * @remarks
  * - `routes` — the initial route inputs to register, equivalent to a bare
  *   `createDispatcher()` followed by `add(routes)`. Omitted ⇒ no routes.
- * - `sensitive` — forwarded to the underlying `Router` (default `true`, §4).
+ * - `sensitive` — forwarded to the underlying `Router` (default `true`).
  * - `unmatched` — the responder invoked when nothing matches the pathname at
  *   all (default: a `404` `Response`).
  * - `unmethoded` — the responder invoked when the pathname matches but not
  *   the method, given the derived `Allow` set (default: a `405` `Response`
  *   with an `Allow` header).
- * - `on` — initial `DispatcherEventMap` listeners (AGENTS §8/§13).
- * - `error` — the emitter's own listener-error handler (AGENTS §13),
- *   forwarded alongside `on`.
+ * - `on` — initial `DispatcherEventMap` listeners (the Emitter pattern's
+ *   similar-surface pin).
+ * - `error` — the emitter's own listener-error handler, forwarded alongside
+ *   `on`.
  */
 export interface DispatcherOptions<TState> {
 	readonly routes?: ReadonlyArray<RouteInput<string, TState>>
@@ -539,7 +541,7 @@ export interface DispatcherOptions<TState> {
 }
 
 /**
- * Represents the fetch-standard, method-dimensioned dispatch entity contract (the §4.5
+ * Represents the fetch-standard, method-dimensioned dispatch entity contract (the
  * behavioral-interface role for the one-class-per-file `Dispatcher`). Layers
  * HTTP method dispatch and web-standard `Request`/`Response` handling over a
  * single internal `Router<RouteRecord<TState>>`.
@@ -550,12 +552,12 @@ export interface DispatcherOptions<TState> {
  * @remarks
  * - `router` — the underlying registry, exposed READONLY for introspection
  *   (the same object `add`/`group`/`match` operate on).
- * - `emitter` — the AGENTS §13 observable surface for {@link DispatcherEventMap}.
+ * - `emitter` — the observable surface for {@link DispatcherEventMap}.
  * - `add(input)` / `add(inputs)` — register ONE / MANY {@link RouteInput}s
- *   (§9.2 batch); throws `TypeError` on a malformed registration (a
+ *   (batch registration); throws a `ContractError` on a malformed registration (a
  *   non-`/`-prefixed path, a non-function handler, or a method outside
  *   {@link import('./constants.js').METHODS}) — the construction/registration
- *   boundary guard (§14); `match`/`handle` hot paths carry zero guards.
+ *   boundary guard; `match`/`handle` hot paths carry zero guards.
  * - `group(prefix)` — a {@link DispatchGroupInterface} scoped under `prefix`.
  * - `match(method, pathname)` — the raw {@link DispatchResult} for a method +
  *   pathname pair, with no `Request`/`Response` involvement — the pure
@@ -565,7 +567,7 @@ export interface DispatcherOptions<TState> {
  *   the body for a derived `HEAD`, auto-answering a derived `OPTIONS` with
  *   the `Allow` set), or invokes the `unmatched`/`unmethoded` responder.
  *   Emits `match`/`miss` accordingly. A handler throw propagates uncaught.
- * - `destroy()` — tears down the `#emitter` (AGENTS §13); the underlying
+ * - `destroy()` — tears down the `#emitter`; the underlying
  *   router is left registered (not cleared) so introspection remains valid
  *   after destroy.
  */
@@ -592,7 +594,7 @@ export interface DispatcherInterface<TState = undefined> {
  *   registers (and to every nested group's own prefix).
  * - `add(input)` / `add(inputs)` — register ONE / MANY {@link RouteInput}s on
  *   the OWNING dispatcher, each input's `path` composed as
- *   `prefix + input.path` (§9.2 batch, mirroring
+ *   `prefix + input.path` (batch registration, mirroring
  *   {@link DispatcherInterface.add}).
  * - `group(prefix)` — a nested group whose prefix is `this.prefix + prefix`.
  */

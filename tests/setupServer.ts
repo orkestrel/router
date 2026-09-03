@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { resolveRoot } from '@orkestrel/test'
 import { createLoopback } from '@orkestrel/test/server'
 
-// ── Server-only setup (AGENTS §16.1 / §17.6) ─────────────────────────────────
+// ── Server-only setup (the scoped test-project setup and no-mocks rules) ─────
 //
 // Loaded after `setup.ts` for the `src:server` test project. Holds `node:*`
-// helpers for the server face's real-socket tests (§8/§16: no mocks — a real
+// helpers for the server face's real-socket tests (no mocks — a real
 // `node:http` server on an ephemeral port, closed by every caller).
 
 /** The workspace root, anchored from this setup file's own location. */
@@ -38,7 +38,7 @@ export interface ResponseListenerSnapshot {
  * Start a real `node:http` server on an ephemeral port for a test.
  *
  * @remarks
- * Binds `listener` to `127.0.0.1:0` (OS-assigned free port) via
+ * Binds `listener` to `127.0.0.1:0` (OS-assigned free port) through
  * `createLoopback`, with `url`/`port` derived from the bound loopback and a
  * `close()` that tears the server down. Every caller MUST call `close()`
  * (typically in the test itself or an `afterEach`) to avoid leaking sockets

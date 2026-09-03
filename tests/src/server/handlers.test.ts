@@ -3,7 +3,7 @@ import { createDispatcher } from '../../../src/core/index.js'
 import { createListener, handleListenerRequest } from '../../../src/server/handlers.js'
 import { startServer } from '../../setupServer.js'
 
-// §16 mirror of `src/server/handlers.ts` — pins the transport boundary
+// The test mirror of `src/server/handlers.ts` — pins the transport boundary
 // end-to-end through a real `Dispatcher` and a real `node:http` server: one
 // handled exchange, and the listener's matched, unmatched, unmethoded,
 // auto-HEAD, auto-OPTIONS, handler-throw, and per-request-state round-trips.
