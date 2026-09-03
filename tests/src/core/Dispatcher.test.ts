@@ -12,13 +12,13 @@ import { createDispatcher } from '../../../src/core/factories.js'
 import { Dispatcher } from '../../../src/core/Dispatcher.js'
 import { createRecorder } from '@orkestrel/test'
 
-// The net-new test mirror slice of `src/core/Dispatcher.ts` — U6-scoped: type-level
+// The net-new test mirror slice of `src/core/Dispatcher.ts` covers the type-level
 // surfaces (RouteHandler context typing, TState generic flow, DispatcherInterface
 // member shape, factory return type), the emitter event payload shapes, destroy
 // idempotence, and the cross-face grammar parity fixture driven through
 // `Dispatcher.match`. The full functional dispatch matrix (auto-HEAD, auto-
-// OPTIONS, 404/405 responders, handler-throw propagation) is U3's own suite and
-// out of this unit's scope.
+// OPTIONS, 404/405 responders, handler-throw propagation) is this file's own
+// suite, in the describe blocks that follow.
 
 interface AppState {
 	readonly userId: string

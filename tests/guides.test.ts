@@ -35,7 +35,7 @@ const FENCE_LANGUAGES = Object.freeze(['ts'])
 const EXAMPLE_LANGUAGE = 'ts'
 /**
  * Each import specifier this package's own guides may resolve against — the router
- * guide spans three faces (core/browser/server), so a fence importing any of them
+ * guide spans the core, browser, and server faces, so a fence importing any of them
  * resolves against that face's own exports rather than only the current entry's.
  */
 const MODULES = Object.freeze({

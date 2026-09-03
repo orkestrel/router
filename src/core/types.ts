@@ -211,7 +211,7 @@ export type PathParams<Path extends string> = {
  * Represents a compiled route path — the anchored regex plus its ordered param names.
  *
  * @remarks
- * The once-per-path compile output of `compilePath` (U1 `helpers.ts`):
+ * The once-per-path compile output of `compilePath` (the path compiler in `helpers.ts`):
  * `regex` is anchored (`^…$`) and matches the WHOLE pathname (with an
  * optional trailing slash), and `params` lists each captured segment's
  * name (`:name` or the final `*name`) in order, so a `regex.exec` result's
