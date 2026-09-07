@@ -76,15 +76,24 @@ export async function handleListenerRequest<TState>(
  * @returns A `(request, response) => void` listener, passable directly to
  *   `http.createServer`
  *
- * @example
+ * @example Basic server
  * ```ts
- * import { createListener } from '@src/server'
- * import { createDispatcher } from '@src/core'
+ * import { createListener } from '@orkestrel/router/server'
+ * import { createDispatcher } from '@orkestrel/router'
  * import http from 'node:http'
  *
- * const dispatcher = createDispatcher()
- * dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
- * http.createServer(createListener(dispatcher, () => undefined)).listen(0)
+ * const dispatcher = createDispatcher<{ readonly requestId: string }>()
+ * dispatcher.add({
+ * 	method: 'GET',
+ * 	path: '/users/:id',
+ * 	handler: (_request, context) =>
+ * 		Response.json({ id: context.params.id, requestId: context.state.requestId }),
+ * })
+ *
+ * const server = http.createServer(
+ * 	createListener(dispatcher, () => ({ requestId: crypto.randomUUID() })),
+ * )
+ * server.listen(0)
  * ```
  */
 export function createListener<TState>(

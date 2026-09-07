@@ -35,7 +35,7 @@ export function escapeRegExp(value: string): string {
 }
 
 /**
- * Canonicalizes a route path for REGISTRY IDENTITY — strips a single trailing
+ * Canonicalizes a route path for registry identity — strips a single trailing
  * slash, except the root `/` (and the empty pattern). The trailing-slash fold
  * {@link compilePath} normalizes a pattern through, so identity agrees with the
  * matcher.
@@ -63,7 +63,8 @@ export function canonicalizePath(path: string): string {
 }
 
 /**
- * Computes the registry key for a method-dimensioned dispatcher route.
+ * Computes the canonical `METHOD /path` registry key for a method-dimensioned
+ * dispatcher route.
  *
  * @remarks
  * Combines the route record's HTTP method with the outer entry's canonical
@@ -238,11 +239,11 @@ export function matchPath(
 }
 
 /**
- * Classifies one path segment into its specificity TIER — the SAME syntax
- * {@link compilePath} rewrites: a syntactically valid `:name` head is a PARAM
- * segment, a final `*name` is a WILDCARD segment, everything else (including a
- * literal segment that merely CONTAINS a `:` mid-string, for example `a:b`) is a
- * LITERAL segment.
+ * Classifies one path segment into its specificity tier — the same syntax
+ * {@link compilePath} rewrites: a syntactically valid `:name` head is a param
+ * segment, a final `*name` is a wildcard segment, and everything else (including a
+ * literal segment that merely contains a `:` mid-string, for example `a:b`) is a
+ * literal segment.
  *
  * @remarks
  * This is the fix over the old engine's bug: the old classifier ranked any
@@ -274,7 +275,7 @@ export function classifySegment(segment: string, isFinal: boolean): number {
 }
 
 /**
- * Computes a route path's SPECIFICITY VECTOR — the per-segment type ranking
+ * Computes a route path's specificity vector — the per-segment type ranking
  * that breaks a tie when several registered routes match the same concrete
  * pathname.
  *
@@ -309,7 +310,7 @@ export function computeSpecificity(path: string): readonly number[] {
 }
 
 /**
- * Compares two route paths by SPECIFICITY — the comparator that picks the
+ * Compares two route paths by specificity — the comparator that picks the
  * most-specific matching route (literal-over-param-over-wildcard,
  * registration-order-independent).
  *
@@ -382,8 +383,8 @@ export function joinPaths(prefix: string, path: string): string {
 }
 
 /**
- * Provides an identity pass-through for a {@link RouteInput} that pins its `Path` generic
- * to the LITERAL registration-site string, so `context.params` types
+ * Provides an identity pass-through for a {@link RouteInput} that pins its `Path`
+ * generic to the literal registration-site string, so `context.params` types
  * correctly through {@link PathParams} without an explicit type argument.
  *
  * @remarks

@@ -1,12 +1,14 @@
 # @orkestrel/router
 
-A typed request router for the `@orkestrel` line. One matching engine compiles
-route patterns, extracts URL-decoded params, and resolves the most specific
-match; a `Dispatcher` layers fetch-standard, method-dimensioned dispatch over
-it; a headless `Navigator` drives History or hash navigation in the browser;
-and a `node:http` adapter converts messages in both directions. Built on
-`@orkestrel/contract` for validation, `@orkestrel/emitter` for the observable
-surface, and `@orkestrel/abort` for cancellation.
+> The typed request router: a path-matching engine (`Router`) that compiles route patterns,
+> extracts URL-decoded params, and resolves the most specific match, with a fetch-standard,
+> method-dimensioned dispatcher (`Dispatcher`), a headless History or hash `Navigator`, and a
+> `node:http` adapter all composing that same engine.
+
+Register routes on a `Router`, or hand them to a `Dispatcher` where they are
+method-dimensioned; reach for `createNavigator` in the browser and `createListener` behind
+`node:http`. Part of the `@orkestrel` line, built on `@orkestrel/contract` for validation,
+`@orkestrel/emitter` for the observable surface, and `@orkestrel/abort` for cancellation.
 
 ## Install
 
@@ -41,13 +43,11 @@ const dispatcher = createDispatcher<{ readonly userId: string }>({
 const response = await dispatcher.handle(new Request('http://x/users/7'), { userId: 'me' })
 ```
 
-`Router` is the shared registry-and-match engine — literal-over-param-over-wildcard
-precedence, trailing-slash folding, and tolerant percent-decoding — that both `Dispatcher`
-(fetch-standard, method-dimensioned) and the browser `Navigator` compose. Path params are
-inferred at the type level from the literal pattern through `PathParams`, and `defineRoute()`
-pins a `RouteInput`'s path so literal inference survives across call sites. The `./browser` entry
-adds `createNavigator` for headless History/hash navigation; the `./server` entry adds
-`buildRequest` / `sendResponse` / `createListener` for `node:http`.
+Path params are inferred at the type level from the literal pattern through the
+`PathParams` type, and the `defineRoute` function pins a `RouteInput`'s path so literal
+inference survives across call sites. The `./browser` entry adds the `createNavigator`
+function for headless History or hash navigation; the `./server` entry adds the
+`buildRequest`, `sendResponse`, and `createListener` functions for `node:http`.
 
 ## Guide
 

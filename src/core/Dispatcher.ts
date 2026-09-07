@@ -22,10 +22,10 @@ import { Router } from './Router.js'
 import { DispatchGroup } from './DispatchGroup.js'
 
 /**
- * Represents the fetch-standard, method-dimensioned dispatch entity — layers HTTP method
- * dispatch and web-standard `Request`/`Response` handling over one internal
- * `Router<RouteRecord<TState>>`. The core machine the eventual server face
- * and any fetch-native runtime consumes directly.
+ * Represents the fetch-standard, method-dimensioned dispatch entity — layers HTTP
+ * method dispatch and web-standard `Request`/`Response` handling over one internal
+ * `Router<RouteRecord<TState>>`. The core machine the server face and any
+ * fetch-native runtime consume directly.
  *
  * @typeParam TState - The consumer's opaque per-request state type
  *

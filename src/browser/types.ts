@@ -90,39 +90,56 @@ export interface NavigatorOptions<Meta> {
 }
 
 /**
- * Represents the headless History/hash navigation entity contract (the behavioral-
- * interface role for the one-class-per-file `Navigator`). Composes a core
- * `Router<Meta>`, resolves the current location on `start()` and
- * on every subsequent navigation event, tracks `active`, and emits
- * `navigate` through the {@link EmitterInterface}.
+ * Represents the headless History/hash navigation entity contract (the
+ * behavioral-interface role for the one-class-per-file `Navigator`). Composes a core
+ * `Router<Meta>`, resolves the current location on `start()` and on every subsequent
+ * navigation event, tracks `active`, and emits `navigate` through the
+ * {@link EmitterInterface}.
  *
  * @typeParam Meta - The opaque per-route payload a match carries back
  *
  * @remarks
- * - `router` — the underlying registry, exposed READONLY for introspection
- *   (the same object routes were registered on).
- * - `emitter` — the observable surface for {@link NavigatorEventMap}.
- * - `active` — the resolved {@link RouterMatch}, or `undefined`
- *   before the first resolve (or when a miss's fallback also misses).
- * - `start()` — begin listening (`hashchange` in hash mode; `popstate` +
- *   optional link interception in history mode) and resolve the current
- *   location now. Idempotent — a second call is a no-op.
- * - `stop()` — stop listening. Idempotent.
- * - `navigate(path)` — navigate programmatically: sets `location.hash` (hash
- *   mode) or calls `history.pushState` (history mode), then resolves. A
- *   no-op hash navigation (already the active hash) resolves directly, since
- *   no `hashchange` would otherwise fire.
- * - `match(path)` — a PURE lookup through the underlying `Router`: no
- *   location read, no fallback, no guard, no emit.
- * - `destroy()` — `stop()` plus tear down the `#emitter`.
+ * Rendering stays outside this contract: a consumer subscribes to `navigate` and
+ * renders whatever the resolved match names.
  */
 export interface NavigatorInterface<Meta> {
+	/**
+	 * Holds the underlying registry, exposed readonly for introspection — the same
+	 * object the routes were registered on.
+	 */
 	readonly router: RouterInterface<Meta>
+	/** Holds the observable surface for {@link NavigatorEventMap}. */
 	readonly emitter: EmitterInterface<NavigatorEventMap<Meta>>
+	/**
+	 * Holds the resolved {@link RouterMatch}, or `undefined` before the first resolve
+	 * and whenever a miss's fallback also misses.
+	 */
 	readonly active: RouterMatch<Meta> | undefined
+	/**
+	 * Begins listening and resolves the current location — idempotent, so a second call
+	 * is a no-op.
+	 *
+	 * @remarks
+	 * Hash mode binds `hashchange`; history mode binds `popstate` and, where `intercept`
+	 * is set, same-origin link interception.
+	 */
 	start(): void
+	/** Stops listening and aborts any pending guard — idempotent. */
 	stop(): void
+	/**
+	 * Navigates programmatically — sets `location.hash` in hash mode or calls
+	 * `history.pushState` in history mode, then resolves.
+	 *
+	 * @remarks
+	 * A hash navigation to the active hash resolves directly, because no `hashchange`
+	 * would otherwise fire.
+	 */
 	navigate(path: string): void
+	/**
+	 * Looks one path up through the underlying `Router` — a pure lookup with no location
+	 * read, no fallback, no guard, and no emit.
+	 */
 	match(path: string): RouterMatch<Meta> | undefined
+	/** Stops listening and tears down the emitter. */
 	destroy(): void
 }

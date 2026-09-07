@@ -8,7 +8,8 @@ import type { RouteEntry } from '@src/core'
 import { canonicalizePath } from '@src/core'
 
 /**
- * Computes the registry key for a browser navigation route.
+ * Computes the canonical path key a `Navigator` registers a browser navigation
+ * route under.
  *
  * @remarks
  * Projects the route's path through the core engine's canonical trailing-slash
@@ -58,7 +59,7 @@ export function extractHashPath(hash: string): string {
 }
 
 /**
- * Resolves the `/`-prefixed pathname to match for the CURRENT location, in
+ * Resolves the `/`-prefixed pathname to match for the current location, in
  * either navigation mode — the one seam `extractHashPath` (hash mode) and
  * history-mode base-stripping share.
  *

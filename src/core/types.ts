@@ -33,9 +33,9 @@ import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkes
 import type { METHOD_LIST } from './constants.js'
 
 /**
- * Names the identifier START characters an identifier-grammar param name may
- * begin with — mirrors the runtime classifier's `[A-Za-z_]` head class
- * (`classifySegment` / `compilePath`, `helpers.ts`).
+ * Names the identifier start characters an identifier-grammar param name may begin
+ * with — mirrors the runtime classifier's `[A-Za-z_]` head class, the one
+ * `classifySegment` and `compilePath` share.
  */
 export type IdentifierStartChar =
 	| 'a'
@@ -93,7 +93,7 @@ export type IdentifierStartChar =
 	| '_'
 
 /**
- * Names the identifier CONTINUATION characters after the first — mirrors the
+ * Names the identifier continuation characters after the first — mirrors the
  * runtime classifier's `[A-Za-z0-9_]*` tail class.
  */
 export type IdentifierChar =
@@ -109,8 +109,17 @@ export type IdentifierChar =
 	| '8'
 	| '9'
 
-// Consume the identifier-continuation run off the front of `S`, char by char, appending each
-// onto `Acc` — stops (returns `Acc` unchanged) at the first non-identifier char or end of string.
+/**
+ * Consumes the identifier-continuation run at the front of a string literal, char by
+ * char, appending each onto the accumulator.
+ *
+ * @typeParam S - The string literal whose front is being consumed
+ * @typeParam Acc - The identifier characters taken so far
+ *
+ * @remarks
+ * Stops (returning `Acc` unchanged) at the first non-identifier char or at the end of
+ * the string, so the accumulator holds exactly the leading {@link IdentifierChar} run.
+ */
 export type TakeIdentifierTail<
 	S extends string,
 	Acc extends string,
@@ -120,24 +129,40 @@ export type TakeIdentifierTail<
 		: Acc
 	: Acc
 
-// The identifier HEAD captured at the FRONT of `S` (empty when `S` does not begin with an
-// identifier-start char) — the type-level mirror of the runtime `/^[A-Za-z_]\w*/` head match.
+/**
+ * Captures the identifier at the front of a string literal, or an empty string when the
+ * literal does not begin with an identifier-start char.
+ *
+ * @typeParam S - The string literal to read the head from
+ *
+ * @remarks
+ * The type-level mirror of the runtime head match anchored on an identifier-start char:
+ * an {@link IdentifierStartChar} opens the run and {@link TakeIdentifierTail} consumes
+ * the rest of it.
+ */
 export type IdentifierHead<S extends string> = S extends `${infer Head}${infer Tail}`
 	? Head extends IdentifierStartChar
 		? TakeIdentifierTail<Tail, Head>
 		: ''
 	: ''
 
-// One path SEGMENT's param contribution — the type-level mirror of the runtime `classifySegment`
-// + `compilePath` segment parser (`helpers.ts`): a `:` HEAD followed by an identifier captures
-// that identifier (stopping at the first non-identifier char, for example `:name.json` captures only
-// `name`); a segment whose `:` is NOT at the segment start (`a:b`) is LITERAL and captures
-// nothing — the fix this type mirrors. A `*name` segment (only valid as the grammar's FINAL
-// segment, unchanged from before) captures the identifier the same way. A non-capturing segment
-// resolves to `unknown` (the intersection IDENTITY) rather than `Record<string, never>` — an
-// index-signature type intersected with a later `{ id: string }` would otherwise conflict
-// (`string` not assignable to the index signature's `never`); `PathParams` normalizes the
-// eventual `unknown` (parameterless) result down to a clean empty record.
+/**
+ * Contributes one path segment's type-level param record — the type-level mirror of
+ * the runtime `classifySegment` and `compilePath` segment parser.
+ *
+ * @typeParam Segment - One `/`-split path segment literal
+ *
+ * @remarks
+ * A `:` head followed by an identifier captures that identifier, stopping at the first
+ * non-identifier char, so `:name.json` captures only `name`. A segment whose `:` is not
+ * at the segment start (`a:b`) is literal and captures nothing — the classification fix
+ * this type mirrors. A `*name` segment, valid only as the grammar's final segment,
+ * captures the identifier the same way. A non-capturing segment resolves to `unknown`
+ * (the intersection identity) rather than `Record<string, never>` — an index-signature
+ * type intersected with a later `{ id: string }` would otherwise conflict (`string` is
+ * not assignable to the index signature's `never`); {@link PathParams} normalizes the
+ * eventual `unknown` (parameterless) result down to a clean empty record.
+ */
 export type SegmentParam<Segment extends string> = Segment extends `:${infer Rest}`
 	? IdentifierHead<Rest> extends infer Name extends string
 		? Name extends ''
@@ -248,8 +273,8 @@ export interface RouteEntry<Meta> {
 }
 
 /**
- * Represents one matched route — the winning entry's PATTERN, decoded params, `meta`
- * payload, and optional `name`.
+ * Represents one matched route — the winning entry's registered pattern, its decoded
+ * params, its `meta` payload, and its optional `name`.
  *
  * @typeParam Meta - The payload the winning entry carries
  *
@@ -269,8 +294,8 @@ export interface RouterMatch<Meta> {
 }
 
 /**
- * Represents the native-override seam — a predicate deciding whether an entry's `meta`
- * ANSWERS a given `match` call, beyond path matching.
+ * Represents the native-override seam — a predicate deciding whether an entry's
+ * `meta` answers a given `match` call, beyond path matching.
  *
  * @typeParam Meta - The entry payload the predicate reads
  *
@@ -285,8 +310,8 @@ export interface RouterMatch<Meta> {
 export type AnswerHandler<Meta> = (meta: Meta) => boolean
 
 /**
- * Represents the options for `createRouter` — an optional initial entry set, the case-
- * sensitivity toggle, and the dedup identity function.
+ * Represents the options for `createRouter` — an optional initial entry set, the
+ * case-sensitivity toggle, and the dedup identity function.
  *
  * @typeParam Meta - The entry payload type
  *
@@ -312,41 +337,60 @@ export interface RouterOptions<Meta> {
 /**
  * Represents the path-matching + registry engine contract (the behavioral-interface
  * role for the one-class-per-file `Router`). Registers `{ path, meta, name? }`
- * entries (compiling each path once) and resolves a concrete pathname to the
- * MOST SPECIFIC matching entry — a literal segment beats a param beats a
- * wildcard at the earliest differing segment, registration-order-independent.
- * The shared engine both the `Navigator` (browser) and the `Dispatcher`
- * (core, method-dimensioned) compose.
+ * entries (compiling each path once) and resolves a concrete pathname to the most
+ * specific matching entry — a literal segment beats a param beats a wildcard at the
+ * earliest differing segment, registration-order-independent. The shared engine both
+ * the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose.
  *
  * @typeParam Meta - The opaque payload each entry carries and a match returns
  *
  * @remarks
- * - `count` — the number of registered entries.
- * - `add(entry)` / `add(entries)` — register ONE / MANY entries (batch registration);
- *   each path is compiled once here. When constructed with a `key` option,
- *   an entry whose key already exists replaces the prior one in place;
- *   otherwise every entry is kept, even duplicate paths.
- * - `match(pathname, answers?)` — the MOST-SPECIFIC matching entry as a
- *   {@link RouterMatch} (its winning `path`, decoded `params`, `meta`, and
- *   `name`), or `undefined`. The optional {@link AnswerHandler} predicate
- *   filters candidates by `meta` first; omitted ⇒ every path match is
- *   eligible.
- * - `entries()` — ALL registered entries in registration order.
- * - `entries(pathname)` — only entries whose path matches `pathname` (the
- *   plural accessor's filtered form; backs a consumer's allow/405 set).
- * - `group(prefix)` — a {@link GroupInterface} scoped under `prefix`; entries
- *   added through the group are registered on this same router with `prefix`
- *   prepended to each path.
- * - `clear()` — drop every entry, leaving the router reusable.
+ * Registration is the guarded boundary and matching is the hot path: `add` validates
+ * each entry and throws, while `match` carries no guard of its own.
  */
 export interface RouterInterface<Meta> {
+	/** Holds the number of registered entries. */
 	readonly count: number
+	/**
+	 * Registers one entry, or many in one call (batch registration), compiling each path
+	 * once; throws a `ContractError` on a malformed path.
+	 *
+	 * @remarks
+	 * When the router was constructed with a `key` option, an entry whose key already
+	 * exists replaces the prior one in place; otherwise every entry is kept, even a
+	 * duplicate path.
+	 */
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
+	/**
+	 * Resolves the most-specific matching entry for a pathname, or `undefined` when
+	 * nothing matches.
+	 *
+	 * @remarks
+	 * A hit is a {@link RouterMatch} carrying the winning `path`, the decoded `params`,
+	 * the `meta` payload, and the optional `name`. The optional {@link AnswerHandler}
+	 * predicate filters candidates by `meta` first; omitted, every path match is eligible.
+	 */
 	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined
+	/**
+	 * Lists every registered entry in registration order, or only those whose path
+	 * matches a given pathname.
+	 *
+	 * @remarks
+	 * The filtered form is the plural accessor's second shape, and it backs a consumer's
+	 * allow set for a 405 answer.
+	 */
 	entries(): ReadonlyArray<RouteEntry<Meta>>
 	entries(pathname: string): ReadonlyArray<RouteEntry<Meta>>
+	/**
+	 * Returns a prefix-scoped registration handle over this router.
+	 *
+	 * @remarks
+	 * Entries added through the group are registered on this same router with `prefix`
+	 * prepended to each path.
+	 */
 	group(prefix: string): GroupInterface<Meta>
+	/** Drops every entry, leaving the router reusable. */
 	clear(): void
 }
 
@@ -357,25 +401,31 @@ export interface RouterInterface<Meta> {
  * @typeParam Meta - The entry payload type, matching the owning router
  *
  * @remarks
- * - `prefix` — the path prefix this group prepends to every entry it
- *   registers (and to every nested group's own prefix).
- * - `add(entry)` / `add(entries)` — register ONE / MANY entries on the
- *   OWNING router, each entry's `path` composed as `prefix + entry.path`
- *   (batch registration, mirroring {@link RouterInterface.add}).
- * - `group(prefix)` — a nested group whose prefix is `this.prefix + prefix`;
- *   nesting composes prefixes left to right with no depth limit.
+ * Nesting composes prefixes left to right with no depth limit.
  */
 export interface GroupInterface<Meta> {
+	/**
+	 * Holds the path prefix this group prepends to every entry it registers, and to
+	 * every nested group's own prefix.
+	 */
 	readonly prefix: string
+	/**
+	 * Registers one entry, or many in one call, on the owning router with this group's
+	 * prefix composed onto each path.
+	 *
+	 * @remarks
+	 * Batch registration mirrors {@link RouterInterface.add}, and the owning router's own
+	 * registration guard still applies.
+	 */
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
+	/** Returns a nested group whose prefix is this prefix followed by the given one. */
 	group(prefix: string): GroupInterface<Meta>
 }
 
 /**
- * Names the HTTP methods a {@link DispatcherInterface} dimensions dispatch
- * over — derived from {@link import('./constants.js').METHOD_LIST}, whose
- * membership counterpart is {@link import('./constants.js').METHODS}.
+ * Names the HTTP methods a {@link DispatcherInterface} dimensions dispatch over —
+ * derived from `METHOD_LIST`, whose membership counterpart is `METHODS`.
  *
  * @remarks
  * Resolves to `'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' |
@@ -470,9 +520,9 @@ export interface RouteRecord<TState> {
 }
 
 /**
- * Represents the outcome of {@link DispatcherInterface.match} — a discriminated union
- * over the dispatch tiers: a full hit, a path-matches-but-method-
- * doesn't (405 territory), or nothing matched at all (404 territory).
+ * Represents the outcome of {@link DispatcherInterface.match} — a discriminated
+ * union over the dispatch tiers: a full hit, a path that matches with no route for
+ * the method (405 territory), or nothing matched at all (404 territory).
  *
  * @typeParam TState - The consumer's opaque per-request state type
  *
@@ -550,35 +600,50 @@ export interface DispatcherOptions<TState> {
  *   into every {@link RouteContext} (default `undefined` for stateless use)
  *
  * @remarks
- * - `router` — the underlying registry, exposed READONLY for introspection
- *   (the same object `add`/`group`/`match` operate on).
- * - `emitter` — the observable surface for {@link DispatcherEventMap}.
- * - `add(input)` / `add(inputs)` — register ONE / MANY {@link RouteInput}s
- *   (batch registration); throws a `ContractError` on a malformed registration (a
- *   non-`/`-prefixed path, a non-function handler, or a method outside
- *   {@link import('./constants.js').METHODS}) — the construction/registration
- *   boundary guard; `match`/`handle` hot paths carry zero guards.
- * - `group(prefix)` — a {@link DispatchGroupInterface} scoped under `prefix`.
- * - `match(method, pathname)` — the raw {@link DispatchResult} for a method +
- *   pathname pair, with no `Request`/`Response` involvement — the pure
- *   decision `handle` builds its response from.
- * - `handle(request, state)` — the full dispatch: parses `request.url`,
- *   calls `match`, and either invokes the winning handler (auto-stripping
- *   the body for a derived `HEAD`, auto-answering a derived `OPTIONS` with
- *   the `Allow` set), or invokes the `unmatched`/`unmethoded` responder.
- *   Emits `match`/`miss` accordingly. A handler throw propagates uncaught.
- * - `destroy()` — tears down the `#emitter`; the underlying
- *   router is left registered (not cleared) so introspection remains valid
- *   after destroy.
+ * Registration is the guarded boundary: `add` throws on a malformed registration,
+ * while the `match` and `handle` hot paths carry no guard of their own.
  */
 export interface DispatcherInterface<TState = undefined> {
+	/**
+	 * Holds the underlying registry, exposed readonly for introspection — the same
+	 * object `add`, `group`, and `match` operate on.
+	 */
 	readonly router: RouterInterface<RouteRecord<TState>>
+	/** Holds the observable surface for {@link DispatcherEventMap}. */
 	readonly emitter: EmitterInterface<DispatcherEventMap>
+	/**
+	 * Registers one route input, or many in one call (batch registration); throws a
+	 * `ContractError` on a malformed registration.
+	 *
+	 * @remarks
+	 * A registration is malformed when its path is not `/`-prefixed, its handler is not
+	 * a function, or its method sits outside `METHODS`. Path validation is delegated to
+	 * the underlying router's own guard.
+	 */
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
+	/** Returns a prefix-scoped registration handle over this dispatcher. */
 	group(prefix: string): DispatchGroupInterface<TState>
+	/**
+	 * Decides the raw {@link DispatchResult} for a method and pathname pair, with no
+	 * `Request` or `Response` involvement — the pure decision `handle` builds its
+	 * response from.
+	 */
 	match(method: Method, pathname: string): DispatchResult<TState>
+	/**
+	 * Runs the full dispatch: parses the request URL, matches, and invokes either the
+	 * winning handler or the `unmatched`/`unmethoded` responder.
+	 *
+	 * @remarks
+	 * A derived `HEAD` runs the matching `GET` handler with the response body stripped,
+	 * and a derived `OPTIONS` answers with the `Allow` set. Emits `match` or `miss`
+	 * accordingly. A handler throw propagates uncaught.
+	 */
 	handle(request: Request, state: TState): Promise<Response>
+	/**
+	 * Tears down the emitter; the underlying router is left registered rather than
+	 * cleared, so introspection stays valid afterwards.
+	 */
 	destroy(): void
 }
 
@@ -590,17 +655,24 @@ export interface DispatcherInterface<TState = undefined> {
  *   the owning dispatcher
  *
  * @remarks
- * - `prefix` — the path prefix this group prepends to every route it
- *   registers (and to every nested group's own prefix).
- * - `add(input)` / `add(inputs)` — register ONE / MANY {@link RouteInput}s on
- *   the OWNING dispatcher, each input's `path` composed as
- *   `prefix + input.path` (batch registration, mirroring
- *   {@link DispatcherInterface.add}).
- * - `group(prefix)` — a nested group whose prefix is `this.prefix + prefix`.
+ * Nesting composes prefixes left to right with no depth limit.
  */
 export interface DispatchGroupInterface<TState> {
+	/**
+	 * Holds the path prefix this group prepends to every route it registers, and to
+	 * every nested group's own prefix.
+	 */
 	readonly prefix: string
+	/**
+	 * Registers one route input, or many in one call, on the owning dispatcher with this
+	 * group's prefix composed onto each path.
+	 *
+	 * @remarks
+	 * Batch registration mirrors {@link DispatcherInterface.add}, and the owning
+	 * dispatcher's own registration guard still applies.
+	 */
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
+	/** Returns a nested group whose prefix is this prefix followed by the given one. */
 	group(prefix: string): DispatchGroupInterface<TState>
 }

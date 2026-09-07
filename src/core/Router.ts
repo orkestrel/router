@@ -13,9 +13,9 @@ import { Group } from './Group.js'
 
 /**
  * Represents the path-matching + registry engine — registers `{ path, meta, name? }`
- * entries (compiling each path once) and resolves a concrete pathname to the
- * MOST SPECIFIC matching entry. The shared machine both the `Navigator`
- * (browser) and the `Dispatcher` (core, method-dimensioned) compose.
+ * entries (compiling each path once) and resolves a concrete pathname to the most
+ * specific matching entry. The shared machine both the `Navigator` (browser) and
+ * the `Dispatcher` (core, method-dimensioned) compose.
  *
  * @typeParam Meta - The opaque payload each entry carries and a match returns
  *

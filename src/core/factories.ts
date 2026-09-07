@@ -35,8 +35,8 @@ export function createRouter<Meta>(options?: RouterOptions<Meta>): RouterInterfa
 }
 
 /**
- * Creates a {@link DispatcherInterface} — the fetch-standard, method-
- * dimensioned dispatch entity over one internal `Router<RouteRecord<TState>>`.
+ * Creates a {@link DispatcherInterface} — the fetch-standard,
+ * method-dimensioned dispatch entity over one internal `Router<RouteRecord<TState>>`.
  *
  * @remarks
  * Prefer this over `new Dispatcher(...)` at call sites that only need the
