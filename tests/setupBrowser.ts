@@ -9,7 +9,7 @@ import { waitForDelay } from '@orkestrel/test'
 // `history` + real DOM events, no mocks.
 
 /**
- * Destroy and forget every tracked navigator, so no `hashchange` / `popstate`
+ * Destroys and forgets every tracked navigator, so no `hashchange` / `popstate`
  * / click listener leaks across test cases — the shared `afterEach` teardown
  * (the array is emptied in place).
  *
@@ -20,7 +20,7 @@ export function drainNavigators(navigators: Array<NavigatorInterface<unknown>>):
 }
 
 /**
- * Reset `location.hash` to empty and let a pending ASYNC `hashchange` flush
+ * Resets `location.hash` to empty and lets a pending ASYNC `hashchange` flush
  * (a macrotask) — the shared `beforeEach` pause so a case starts from a
  * quiescent `#''` before any navigator is listening.
  */
@@ -30,7 +30,7 @@ export async function settleHash(): Promise<void> {
 }
 
 /**
- * Set `location.hash` and let its ASYNC `hashchange` flush (a macrotask)
+ * Sets `location.hash` and lets its ASYNC `hashchange` flush (a macrotask)
  * BEFORE any navigator is listening — so a test counting `navigate`
  * emissions sees only the navigator's own resolve(s), not a spurious replay.
  *
@@ -42,7 +42,7 @@ export async function setHash(value: string): Promise<void> {
 }
 
 /**
- * Reset `history` state to a plain root pathname (through `replaceState`) — the
+ * Resets `history` state to a plain root pathname (through `replaceState`) — the
  * `'history'`-mode counterpart of {@link settleHash}, so each `'history'`-mode
  * case starts from a known location with no leftover `pushState` entries
  * driving the next test's resolve.
@@ -54,7 +54,7 @@ export function settleHistory(pathname = '/'): void {
 }
 
 /**
- * Build a synthetic same-origin `<a>` element (attached to `document.body`
+ * Builds a synthetic same-origin `<a>` element (attached to `document.body`
  * so it participates in `event.composedPath()`) — the fixture every
  * `'history'`-mode link-interception test clicks. Caller removes it (or lets
  * the test's own DOM teardown handle it).
@@ -76,8 +76,8 @@ export function createAnchor(
 }
 
 /**
- * Dispatch a real, bubbling, cancelable left-click `MouseEvent` on a node —
- * the click-interception test fixture, so a case can assert
+ * Dispatches a real, bubbling, cancelable `MouseEvent` for the primary button
+ * on a node — the interception test fixture, so a case can assert
  * `event.defaultPrevented` after dispatch without hand-rolling `MouseEvent`
  * init options each time.
  *
@@ -111,7 +111,7 @@ export function click(
 }
 
 /**
- * Dispatch a real click through {@link click} while guaranteeing the iframe can
+ * Dispatches a real click through {@link click} while guaranteeing the iframe can
  * NEVER actually navigate — a bubble-phase `window` listener (registered
  * before dispatch, `{ once: true }`) runs AFTER the `Navigator`'s own
  * `document`-level click listener (bubble order: `document` before `window`),

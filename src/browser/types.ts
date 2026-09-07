@@ -102,7 +102,7 @@ export interface NavigatorOptions<Meta> {
  * - `router` — the underlying registry, exposed READONLY for introspection
  *   (the same object routes were registered on).
  * - `emitter` — the observable surface for {@link NavigatorEventMap}.
- * - `active` — the currently-resolved {@link RouterMatch}, or `undefined`
+ * - `active` — the resolved {@link RouterMatch}, or `undefined`
  *   before the first resolve (or when a miss's fallback also misses).
  * - `start()` — begin listening (`hashchange` in hash mode; `popstate` +
  *   optional link interception in history mode) and resolve the current

@@ -10,24 +10,24 @@ import { createLoopback } from '@orkestrel/test/server'
 // helpers for the server face's real-socket tests (no mocks — a real
 // `node:http` server on an ephemeral port, closed by every caller).
 
-/** The workspace root, anchored from this setup file's own location. */
+/** Names the workspace root, anchored from this setup file's own location. */
 export const WORKSPACE_ROOT = fileURLToPath(resolveRoot(import.meta))
 
-/** A running test server bound to an ephemeral port, with its base `url` and a `close` teardown. */
+/** Represents a running test server bound to an ephemeral port, with its base `url` and a `close` teardown. */
 export interface TestServerInterface {
 	readonly url: string
 	readonly port: number
 	close(): Promise<void>
 }
 
-/** A paused real HTTP response and the request/server resources that own it. */
+/** Represents a paused real HTTP response and the request/server resources that own it. */
 export interface PausedResponseInterface {
 	readonly server: TestServerInterface
 	readonly request: http.ClientRequest
 	readonly response: IncomingMessage
 }
 
-/** Listener totals at the `sendResponse` backpressure race seams. */
+/** Records listener totals at the `sendResponse` backpressure race seams. */
 export interface ResponseListenerSnapshot {
 	readonly drain: number
 	readonly close: number
@@ -35,7 +35,7 @@ export interface ResponseListenerSnapshot {
 }
 
 /**
- * Start a real `node:http` server on an ephemeral port for a test.
+ * Starts a real `node:http` server on an ephemeral port for a test.
  *
  * @remarks
  * Binds `listener` to `127.0.0.1:0` (OS-assigned free port) through
@@ -68,7 +68,7 @@ export async function startServer(
 }
 
 /**
- * Request a real fixture server response and pause its client-side body.
+ * Requests a real fixture server response and pauses its client-side body.
  *
  * @param listener - The `node:http` request listener to serve
  * @param options - Optional native server settings for the real fixture
@@ -95,7 +95,7 @@ export async function startPausedResponse(
 }
 
 /**
- * Count listeners installed on the response events used by pressure waits.
+ * Counts listeners installed on the response events used by pressure waits.
  *
  * @param response - The real server response to inspect
  * @returns Current `drain`, `close`, and `error` listener totals

@@ -171,7 +171,7 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 }
 
 /**
- * URL-decodes one captured param value, tolerating a malformed percent-escape —
+ * Decodes one captured param value from a URL, tolerating a malformed percent-escape —
  * the decode {@link matchPath} applies to each captured group.
  *
  * @remarks

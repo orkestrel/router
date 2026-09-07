@@ -15,14 +15,14 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-/** A finite counting `ReadableStream` fixture and its observed pull total. */
+/** Represents a finite counting `ReadableStream` fixture and its observed pull total. */
 export interface TestBodyInterface {
 	readonly body: ReadableStream<Uint8Array>
 	readonly pulls: number
 }
 
 /**
- * Create a finite byte stream that records each pull from its consumer.
+ * Creates a finite byte stream that records each pull from its consumer.
  *
  * @param chunk - The bytes to enqueue for each pull
  * @param count - The number of chunks to produce before closing
