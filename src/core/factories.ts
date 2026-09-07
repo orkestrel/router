@@ -21,13 +21,24 @@ import { Router } from './Router.js'
  *   (default `true`), and a `key` dedup identity function
  * @returns A {@link RouterInterface}
  *
- * @example
+ * @example Register and match
  * ```ts
- * import { createRouter } from '@src/core'
+ * import { createDispatcher, createRouter } from '@orkestrel/router'
  *
  * const router = createRouter<{ readonly page: string }>()
  * router.add({ path: '/users/:id', meta: { page: 'profile' } })
  * router.match('/users/7') // { path: '/users/:id', params: { id: '7' }, meta: { page: 'profile' } }
+ *
+ * const dispatcher = createDispatcher<{ readonly userId: string }>({
+ * 	routes: [
+ * 		{
+ * 			method: 'GET',
+ * 			path: '/users/:id',
+ * 			handler: (_request, context) => Response.json(context.params),
+ * 		},
+ * 	],
+ * })
+ * const response = await dispatcher.handle(new Request('http://x/users/7'), { userId: 'me' })
  * ```
  */
 export function createRouter<Meta>(options?: RouterOptions<Meta>): RouterInterface<Meta> {

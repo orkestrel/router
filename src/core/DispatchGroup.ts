@@ -2,8 +2,9 @@ import type { DispatchGroupInterface, DispatcherInterface, RouteInput } from './
 import { joinPaths } from './helpers.js'
 
 /**
- * Represents a prefix-scoped registration handle over a `Dispatcher` — the
- * method-dimensioned counterpart of `Group`.
+ * Represents a prefix-scoped registration handle over a
+ * {@link import('./Dispatcher.js').Dispatcher} — the method-dimensioned counterpart of
+ * `Group`.
  *
  * @typeParam TState - The consumer's opaque per-request state type, matching
  *   the owning dispatcher

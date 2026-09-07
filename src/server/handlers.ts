@@ -76,7 +76,7 @@ export async function handleListenerRequest<TState>(
  * @returns A `(request, response) => void` listener, passable directly to
  *   `http.createServer`
  *
- * @example Basic server
+ * @example
  * ```ts
  * import { createListener } from '@orkestrel/router/server'
  * import { createDispatcher } from '@orkestrel/router'

@@ -5,9 +5,10 @@
 // ============================================================================
 
 /**
- * Lists the HTTP methods a `DispatcherInterface` registers routes under, in canonical
- * order — a frozen literal tuple, and the single source the `Method` type, `METHODS`,
- * and `parseMethod` are all derived from.
+ * Lists the HTTP methods a {@link import('./types.js').DispatcherInterface} registers
+ * routes under, in canonical order — a frozen literal tuple, and the single source the
+ * {@link import('./types.js').Method} type, {@link METHODS}, and `parseMethod` are all
+ * derived from.
  *
  * @remarks
  * A frozen tuple of the verbs: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`,
@@ -33,9 +34,9 @@ export const METHOD_LIST = Object.freeze([
 ] as const)
 
 /**
- * Holds every HTTP method a `DispatcherInterface` registers routes under as a
- * `ReadonlySet` — backs the registration guard (`add` rejects any `method` outside
- * this set) and the auto-`OPTIONS` `Allow` derivation.
+ * Holds every HTTP method a {@link import('./types.js').DispatcherInterface} registers
+ * routes under as a `ReadonlySet` — backs the registration guard (`add` rejects any
+ * `method` outside this set) and the auto-`OPTIONS` `Allow` derivation.
  *
  * @remarks
  * A `ReadonlySet` built from {@link METHOD_LIST}, so it carries exactly the
