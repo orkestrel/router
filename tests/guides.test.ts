@@ -1,10 +1,6 @@
 // The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
 // this repo's own `guides/README.md` manifest. The constants that follow are this
-// package's own, and are the only part a sibling package changes. Every flagship fence in
-// `guides/router.md` that this project can execute is transcribed at the end of the file and
-// asserted against what its comments claim: name resolution is not a behavioural proof, so a
-// fence documenting a value the code contradicts is exactly what the transcriptions catch.
-// Change a fence, change its transcription.
+// package's own, as is the executed section that closes the file.
 //
 // This project runs in Node with the browser disabled, so it cannot execute a fence that
 // touches `window`: the `@orkestrel/router/browser` fences are transcribed in

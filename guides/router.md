@@ -58,15 +58,15 @@ Browser and server usage appear under [Patterns](#patterns).
 
 ### Constants
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`. A `Shape` cell holds the constant's declared type.
+A `Shape` cell holds the constant's declared type.
 
 | API             | Kind  | Shape                                                                   | Summary                                                                                                                                                                                                           |
 | --------------- | ----- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `METHOD_LIST`   | const | `readonly ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']` | Lists the HTTP methods a `DispatcherInterface` registers routes under, in canonical order — a frozen literal tuple, and the single source the `Method` type, `METHODS`, and `parseMethod` are all derived from.   |
 | `METHODS`       | const | `ReadonlySet<string>`                                                   | Holds every HTTP method a `DispatcherInterface` registers routes under as a `ReadonlySet` — backs the registration guard (`add` rejects any `method` outside this set) and the auto-`OPTIONS` `Allow` derivation. |
-| `TIER_LITERAL`  | const | `2`                                                                     | Names the specificity tier for a \*\*literal\*\* path segment (`/users`) — the highest tier, always outranking a param or wildcard segment at the same position.                                                  |
-| `TIER_PARAM`    | const | `1`                                                                     | Names the specificity tier for a \*\*param\*\* path segment (`:name`) — ranks below a literal segment and above a wildcard segment at the same position.                                                          |
-| `TIER_WILDCARD` | const | `0`                                                                     | Names the specificity tier for a \*\*wildcard\*\* path segment (`*name`) — the lowest tier; a wildcard only ever wins against another wildcard shape (an equal-specificity tie resolved by registration order).   |
+| `TIER_LITERAL`  | const | `number`                                                                | Names the specificity tier for a \*\*literal\*\* path segment (`/users`) — the highest tier, always outranking a param or wildcard segment at the same position.                                                  |
+| `TIER_PARAM`    | const | `number`                                                                | Names the specificity tier for a \*\*param\*\* path segment (`:name`) — ranks below a literal segment and above a wildcard segment at the same position.                                                          |
+| `TIER_WILDCARD` | const | `number`                                                                | Names the specificity tier for a \*\*wildcard\*\* path segment (`*name`) — the lowest tier; a wildcard only ever wins against another wildcard shape (an equal-specificity tie resolved by registration order).   |
 
 ### Helpers
 
@@ -98,9 +98,11 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 
 ### Guards
 
-| API                 | Kind     | Summary                                                                                                                                                                    |
-| ------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `isEncryptedSocket` | function | Determines whether a `node:http` connection socket is TLS-encrypted — the total, never-throwing narrow `buildRequest` uses to pick the derived scheme (`https` vs `http`). |
+In a guard table a `Shape` cell holds the type the guard narrows to.
+
+| API                 | Kind     | Shape           | Summary                                                                                                                                                                    |
+| ------------------- | -------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isEncryptedSocket` | function | `{ encrypted }` | Determines whether a `node:http` connection socket is TLS-encrypted — the total, never-throwing narrow `buildRequest` uses to pick the derived scheme (`https` vs `http`). |
 
 ### Handlers
 
@@ -417,6 +419,9 @@ router.match('/files/a/b.png')?.meta.handler // 'catchAll'
 
 ### Method-dimensioned dispatch (auto-HEAD, auto-OPTIONS, 405)
 
+Registering a single `GET` route yields an auto-derived `HEAD`, an auto-derived `OPTIONS`,
+and a `405` for every other method on that path:
+
 ```ts
 import { createDispatcher } from '@orkestrel/router'
 
@@ -440,6 +445,9 @@ notAllowed.status // 405
 ```
 
 ### Observing dispatch outcomes
+
+The `on` hooks report every dispatch outcome, matched or missed, alongside the return
+value of `handle`:
 
 ```ts
 import { createDispatcher } from '@orkestrel/router'
@@ -509,6 +517,9 @@ dispatcher.destroy() // tears down the #emitter; router.entries() is still valid
 
 ### Hash-mode navigation
 
+A `Navigator` in hash mode dispatches on `location.hash` and updates `active` after
+each `hashchange`:
+
 ```ts
 import { createNavigator } from '@orkestrel/router/browser'
 
@@ -527,6 +538,8 @@ navigator.destroy() // stop() plus tear down the #emitter
 ```
 
 ### History mode with link interception
+
+History mode binds `popstate` and, with `intercept` set, same-origin `<a>` clicks:
 
 ```ts
 import { createNavigator } from '@orkestrel/router/browser'
@@ -562,6 +575,8 @@ navigator.start()
 ```
 
 ### Basic server
+
+`createListener` adapts a core `Dispatcher` into a `node:http` request listener:
 
 ```ts
 import { createListener } from '@orkestrel/router/server'
@@ -612,6 +627,9 @@ server.listen(0)
 ```
 
 ### Observing client disconnect
+
+The `Request` returned by `buildRequest` carries a `signal` that aborts when the connection
+closes before the response completes:
 
 ```ts
 import { buildRequest } from '@orkestrel/router/server'
