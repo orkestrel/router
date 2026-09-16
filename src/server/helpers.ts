@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { RequestOptions } from './types.js'
 import { once } from 'node:events'
 import { createAbort } from '@orkestrel/abort'
+import { isArray } from '@orkestrel/contract'
 import { isEncryptedSocket } from './validators.js'
 
 /**
@@ -63,10 +64,10 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
 	for (const [name, value] of Object.entries(message.headers)) {
 		if (value === undefined) continue
 		if (name === 'set-cookie') {
-			for (const cookie of Array.isArray(value) ? value : [value]) headers.append(name, cookie)
+			for (const cookie of isArray(value) ? value : [value]) headers.append(name, cookie)
 			continue
 		}
-		headers.set(name, Array.isArray(value) ? value.join(', ') : value)
+		headers.set(name, isArray(value) ? value.join(', ') : value)
 	}
 
 	const abort = createAbort()

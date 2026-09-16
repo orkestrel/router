@@ -1,4 +1,5 @@
 import type { DispatchGroupInterface, DispatcherInterface, RouteInput } from './types.js'
+import { isArray } from '@orkestrel/contract'
 import { joinPaths } from './helpers.js'
 
 /**
@@ -36,7 +37,7 @@ export class DispatchGroup<TState> implements DispatchGroupInterface<TState> {
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
 	add(input: RouteInput<string, TState> | ReadonlyArray<RouteInput<string, TState>>): void {
-		const inputs = Array.isArray(input) ? input : [input]
+		const inputs = isArray(input) ? input : [input]
 		this.#parent.add(
 			inputs.map((route) => ({ ...route, path: joinPaths(this.prefix, route.path) })),
 		)

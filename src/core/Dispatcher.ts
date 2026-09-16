@@ -14,7 +14,7 @@ import type {
 } from './types.js'
 import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
-import { ContractError, isFunction, isString, preview } from '@orkestrel/contract'
+import { ContractError, isArray, isFunction, isString, preview } from '@orkestrel/contract'
 import { METHODS } from './constants.js'
 import { computeDispatchKey } from './helpers.js'
 import { parseMethod } from './parsers.js'
@@ -92,7 +92,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
 	add(input: RouteInput<string, TState> | ReadonlyArray<RouteInput<string, TState>>): void {
-		const inputs = Array.isArray(input) ? input : [input]
+		const inputs = isArray(input) ? input : [input]
 		for (const route of inputs) this.#register(route)
 	}
 

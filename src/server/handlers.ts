@@ -8,6 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DispatcherInterface } from '@src/core'
 import type { ListenerFunction, StateFunction } from './types.js'
+import { isError } from '@orkestrel/contract'
 import { buildRequest, sendResponse } from './helpers.js'
 
 /**
@@ -49,7 +50,7 @@ export async function handleListenerRequest<TState>(
 			response.writeHead(500)
 			response.end()
 		} else if (!response.destroyed) {
-			response.destroy(error instanceof Error ? error : new Error(String(error)))
+			response.destroy(isError(error) ? error : new Error(String(error)))
 		}
 	}
 }

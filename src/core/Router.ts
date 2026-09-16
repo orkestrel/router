@@ -7,7 +7,7 @@ import type {
 	RouterMatch,
 	RouterOptions,
 } from './types.js'
-import { ContractError, isString, preview } from '@orkestrel/contract'
+import { ContractError, isArray, isString, preview } from '@orkestrel/contract'
 import { compareSpecificity, compilePath, matchPath } from './helpers.js'
 import { Group } from './Group.js'
 
@@ -60,7 +60,7 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
 	add(input: RouteEntry<Meta> | ReadonlyArray<RouteEntry<Meta>>): void {
-		const inputs = Array.isArray(input) ? input : [input]
+		const inputs = isArray(input) ? input : [input]
 		for (const entry of inputs) this.#register(entry)
 	}
 
