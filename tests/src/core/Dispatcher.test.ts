@@ -1,6 +1,6 @@
+import type { AppState } from '../../setup.js'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type {
-	DispatchResult,
 	DispatcherEventMap,
 	DispatcherInterface,
 	Method,
@@ -11,6 +11,7 @@ import { ContractError } from '@orkestrel/contract'
 import { createDispatcher } from '../../../src/core/factories.js'
 import { Dispatcher } from '../../../src/core/Dispatcher.js'
 import { createRecorder } from '@orkestrel/test'
+import { handleParams, handleState, matchedResult } from '../../setup.js'
 
 // The net-new test mirror slice of `src/core/Dispatcher.ts` covers the type-level
 // surfaces (RouteHandler context typing, TState generic flow, DispatcherInterface
@@ -19,20 +20,6 @@ import { createRecorder } from '@orkestrel/test'
 // `Dispatcher.match`. The full functional dispatch matrix (auto-HEAD, auto-
 // OPTIONS, 404/405 responders, handler-throw propagation) is this file's own
 // suite, in the describe blocks that follow.
-
-interface AppState {
-	readonly userId: string
-}
-
-const handleParams: RouteHandler<'/users/:id/posts/:slug'> = (_request, context) => {
-	expectTypeOf(context.params).toEqualTypeOf<{ readonly id: string; readonly slug: string }>()
-	return new Response(context.params.id)
-}
-
-const handleState: RouteHandler<'/health', AppState> = (_request, context) => {
-	expectTypeOf(context.state).toEqualTypeOf<AppState>()
-	return new Response(context.state.userId)
-}
 
 describe('createDispatcher — factory return type', () => {
 	it('returns a Dispatcher instance implementing DispatcherInterface', () => {
@@ -132,16 +119,6 @@ const CROSS_FACE_TABLE = [
 	{ pattern: '/files/*rest', request: '/files/a/b.png', params: { rest: 'a/b.png' } },
 	{ pattern: '/about', request: '/about/', params: {} },
 ] as const
-
-// Narrows a `DispatchResult` to its `'matched'` variant WITHOUT an if-wrapped `expect`
-// (the vitest `no-conditional-expect` rule) — throws loudly on the wrong status instead.
-function matchedResult<TState>(
-	result: DispatchResult<TState>,
-): Extract<DispatchResult<TState>, { readonly status: 'matched' }> {
-	if (result.status !== 'matched')
-		throw new Error(`expected a "matched" DispatchResult, got "${result.status}"`)
-	return result
-}
 
 describe('Dispatcher — cross-face grammar parity fixture', () => {
 	it('resolves every fixture case to its expected pattern + params through match(method, pathname)', () => {

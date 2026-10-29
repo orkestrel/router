@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { existsSync } from 'node:fs'
 import {
 	countResponseListeners,
+	handleDrain,
 	startPausedResponse,
 	startServer,
 	WORKSPACE_ROOT,
@@ -50,8 +51,6 @@ describe('startPausedResponse', () => {
 		}
 	})
 })
-
-function handleDrain(): void {}
 
 describe('countResponseListeners', () => {
 	it('reads the real listener totals installed on a live response, rising and falling with them', async () => {

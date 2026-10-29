@@ -1,31 +1,19 @@
+import type { MethodMeta } from '../../setup.js'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { PathParams, RouterInterface } from '../../../src/core/types.js'
 import { ContractError } from '@orkestrel/contract'
 import { createRouter } from '../../../src/core/factories.js'
 import { Router } from '../../../src/core/Router.js'
+import { matchMethod, matchTag } from '../../setup.js'
 
 // The test mirror of `src/core/Router.ts` — pins the registry + most-specific-match scan and the
 // `answers` override seam (ported from the old `RouteMatcher` acceptance spec, adapted to the
 // `/`-prefixed grammar), PLUS the two promotions: dedup through `key` (replace-in-place) and
 // `group(prefix)` prefix composition.
 
-// A method-dimensioned meta (the Dispatcher's shape) — `answers` reads `method`.
-interface MethodMeta {
-	readonly method: 'GET' | 'POST'
-	readonly tag: string
-}
-
 // A method-less meta (the Navigator's shape) — `answers` is omitted.
 interface PageMeta {
 	readonly page: string
-}
-
-function matchMethod(method: MethodMeta['method']): (meta: MethodMeta) => boolean {
-	return (meta) => meta.method === method
-}
-
-function matchTag(tag: string): (meta: MethodMeta) => boolean {
-	return (meta) => meta.tag === tag
 }
 
 describe('Router — registration', () => {

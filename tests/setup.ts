@@ -1,4 +1,5 @@
-import { afterEach, vi } from 'vitest'
+import type { DispatchResult, RouteHandler } from '../src/core/types.js'
+import { afterEach, expectTypeOf, vi } from 'vitest'
 
 // ── Environment-agnostic base setup ───────────────────────────────────────────
 //
@@ -56,4 +57,46 @@ export function createTestBody(chunk: Uint8Array, count: number): TestBodyInterf
 			return pulls.count
 		},
 	}
+}
+
+/** Describes the state carried through a dispatcher scenario. */
+export interface AppState {
+	readonly userId: string
+}
+
+/** Returns a route parameter while checking its inferred context. */
+export const handleParams: RouteHandler<'/users/:id/posts/:slug'> = (_request, context) => {
+	expectTypeOf(context.params).toEqualTypeOf<{ readonly id: string; readonly slug: string }>()
+	return new Response(context.params.id)
+}
+
+/** Returns the user identifier while checking its inferred state. */
+export const handleState: RouteHandler<'/health', AppState> = (_request, context) => {
+	expectTypeOf(context.state).toEqualTypeOf<AppState>()
+	return new Response(context.state.userId)
+}
+
+/** Requires a matched dispatch result and returns its narrowed value. */
+export function matchedResult<TState>(
+	result: DispatchResult<TState>,
+): Extract<DispatchResult<TState>, { readonly status: 'matched' }> {
+	if (result.status !== 'matched')
+		throw new Error(`expected a "matched" DispatchResult, got "${result.status}"`)
+	return result
+}
+
+/** Describes method and tag metadata for route matching. */
+export interface MethodMeta {
+	readonly method: 'GET' | 'POST'
+	readonly tag: string
+}
+
+/** Creates a predicate selecting a route's method. */
+export function matchMethod(method: MethodMeta['method']): (meta: MethodMeta) => boolean {
+	return (meta) => meta.method === method
+}
+
+/** Creates a predicate selecting a route's tag. */
+export function matchTag(tag: string): (meta: MethodMeta) => boolean {
+	return (meta) => meta.tag === tag
 }

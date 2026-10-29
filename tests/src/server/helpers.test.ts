@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { PausedResponseInterface } from '../../setupServer.js'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { createDispatcher } from '../../../src/core/index.js'
@@ -7,64 +6,14 @@ import { buildRequest, sendResponse } from '../../../src/server/helpers.js'
 import { createListener } from '../../../src/server/handlers.js'
 import { createRecorder, waitForCondition } from '@orkestrel/test'
 import { createTestBody } from '../../setup.js'
-import { countResponseListeners, startPausedResponse, startServer } from '../../setupServer.js'
-
-async function captureBody(
-	request: IncomingMessage,
-	response: ServerResponse,
-	captured: ReturnType<typeof createRecorder<[string]>>,
-): Promise<void> {
-	const built = buildRequest(request)
-	captured.handler(await built.text())
-	response.end('ok')
-}
-
-class ResponseSend {
-	#settled = false
-	#failure: unknown
-	readonly #done = Promise.withResolvers<void>()
-
-	get settled(): boolean {
-		return this.#settled
-	}
-
-	get failure(): unknown {
-		return this.#failure
-	}
-
-	get done(): Promise<void> {
-		return this.#done.promise
-	}
-
-	async execute(response: Response, target: ServerResponse): Promise<void> {
-		try {
-			await sendResponse(response, target)
-			this.#settled = true
-		} catch (error) {
-			this.#failure = error
-		} finally {
-			this.#done.resolve()
-		}
-	}
-}
-
-async function collectResponse(
-	paused: PausedResponseInterface,
-	target: ServerResponse,
-	received: Promise<Buffer>,
-	sent: Promise<void>,
-): Promise<readonly [Buffer, ReturnType<typeof countResponseListeners>]> {
-	try {
-		paused.response.resume()
-		const output = await received
-		await sent
-		return [output, countResponseListeners(target)]
-	} finally {
-		paused.response.destroy()
-		paused.request.destroy()
-		await paused.server.close()
-	}
-}
+import {
+	captureBody,
+	ResponseSend,
+	collectResponse,
+	countResponseListeners,
+	startPausedResponse,
+	startServer,
+} from '../../setupServer.js'
 
 // The test mirror of `src/server/helpers.ts` — pins the conversion pair over REAL
 // sockets (no mocks): `buildRequest` fidelity, client-disconnect →

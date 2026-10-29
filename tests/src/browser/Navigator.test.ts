@@ -1,4 +1,5 @@
 import type { NavigatorInterface, NavigatorOptions } from '../../../src/browser/types.js'
+import type { PageMeta } from '../../setupBrowser.js'
 import type { RouterMatch } from '../../../src/core/types.js'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { ContractError } from '@orkestrel/contract'
@@ -6,6 +7,7 @@ import { createNavigator, Navigator } from '../../../src/browser/index.js'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import {
 	createAnchor,
+	startNavigator,
 	drainNavigators,
 	safeClick,
 	setHash,
@@ -19,10 +21,6 @@ import {
 // link interception), the guard matrix (sync veto, async allow/veto, supersede,
 // throw), the `navigate` event payload, lifecycle idempotence, and the pure
 // `match` lookup.
-
-interface PageMeta {
-	readonly page: string
-}
 
 // Every navigator started in a test is tracked and destroyed after it, so no
 // `hashchange`/`popstate`/click listener leaks across cases (the shared teardown
@@ -39,20 +37,10 @@ afterEach(() => {
 	drainNavigators(navigators)
 })
 
-function start(
-	routes: ReadonlyArray<{ readonly path: string; readonly meta: PageMeta }>,
-	options?: Omit<Partial<NavigatorOptions<PageMeta>>, 'routes'>,
-): NavigatorInterface<PageMeta> {
-	const navigator = createNavigator<PageMeta>({ routes, ...options })
-	navigators.push(navigator)
-	navigator.start()
-	return navigator
-}
-
 describe('Navigator — hash mode: resolves current hash + navigate lifecycle', () => {
 	it('resolves the current hash on start()', async () => {
 		await setHash('#/tokens')
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
@@ -61,7 +49,7 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 	})
 
 	it('re-resolves on a real hashchange', async () => {
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
@@ -72,13 +60,13 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 
 	it('extracts :param captures into active', async () => {
 		await setHash('#/users/7')
-		const navigator = start([{ path: '/users/:id', meta: { page: 'user' } }])
+		const navigator = startNavigator(navigators, [{ path: '/users/:id', meta: { page: 'user' } }])
 		expect(navigator.active?.params).toEqual({ id: '7' })
 	})
 
 	it('prefers a literal over a param (order-independent)', async () => {
 		await setHash('#/users/me')
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/users/:id', meta: { page: 'user' } },
 			{ path: '/users/me', meta: { page: 'me' } },
 		])
@@ -86,7 +74,7 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 	})
 
 	it('navigate(path) navigates by setting the hash and re-resolving', async () => {
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
@@ -98,7 +86,7 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 
 	it('navigate(path) re-resolves synchronously when the destination is already the active hash', async () => {
 		await setHash('#/tokens')
-		const navigator = start([{ path: '/tokens', meta: { page: 'tokens' } }])
+		const navigator = startNavigator(navigators, [{ path: '/tokens', meta: { page: 'tokens' } }])
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
 		navigator.emitter.on('navigate', recorder.handler)
 		navigator.navigate('/tokens') // same hash → no hashchange fires → resolves directly
@@ -108,7 +96,7 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 
 	it('falls back to the first route on an unknown hash', async () => {
 		await setHash('#/does-not-exist')
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
@@ -117,7 +105,8 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 
 	it('honors an explicit fallback path', async () => {
 		await setHash('#/nope')
-		const navigator = start(
+		const navigator = startNavigator(
+			navigators,
 			[
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
@@ -145,7 +134,8 @@ describe('Navigator — hash mode: resolves current hash + navigate lifecycle', 
 describe('Navigator — history mode: pushState/popstate + base stripping', () => {
 	it('resolves the current pathname on start()', () => {
 		settleHistory('/tokens')
-		const navigator = start(
+		const navigator = startNavigator(
+			navigators,
 			[
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
@@ -156,7 +146,8 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 	})
 
 	it('navigate(path) pushes state and resolves synchronously', () => {
-		const navigator = start(
+		const navigator = startNavigator(
+			navigators,
 			[
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
@@ -169,7 +160,8 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 	})
 
 	it('re-resolves on a real popstate (browser back)', async () => {
-		const navigator = start(
+		const navigator = startNavigator(
+			navigators,
 			[
 				{ path: '/tokens', meta: { page: 'tokens' } },
 				{ path: '/palette', meta: { page: 'palette' } },
@@ -189,7 +181,7 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 
 	it('strips a configured base before matching', () => {
 		settleHistory('/app/users/7')
-		const navigator = start([{ path: '/users/:id', meta: { page: 'user' } }], {
+		const navigator = startNavigator(navigators, [{ path: '/users/:id', meta: { page: 'user' } }], {
 			history: true,
 			base: '/app',
 		})
@@ -199,7 +191,7 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 
 	it('navigate(path) composes the configured base back onto pushState', () => {
 		settleHistory('/app')
-		const navigator = start([{ path: '/users/:id', meta: { page: 'user' } }], {
+		const navigator = startNavigator(navigators, [{ path: '/users/:id', meta: { page: 'user' } }], {
 			history: true,
 			base: '/app',
 		})
@@ -212,7 +204,8 @@ describe('Navigator — history mode: pushState/popstate + base stripping', () =
 describe('Navigator — history mode: link interception', () => {
 	it('intercepts a plain left-click on a same-origin link when intercept is true', () => {
 		settleHistory('/')
-		const navigator = start(
+		const navigator = startNavigator(
+			navigators,
 			[
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
@@ -232,7 +225,8 @@ describe('Navigator — history mode: link interception', () => {
 
 	it('does not intercept when intercept is false (default)', () => {
 		settleHistory('/')
-		start(
+		startNavigator(
+			navigators,
 			[
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
@@ -250,7 +244,8 @@ describe('Navigator — history mode: link interception', () => {
 
 	it('does not intercept a click carrying a modifier key', () => {
 		settleHistory('/')
-		start(
+		startNavigator(
+			navigators,
 			[
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
@@ -269,7 +264,8 @@ describe('Navigator — history mode: link interception', () => {
 
 	it('does not intercept a targeted link', () => {
 		settleHistory('/')
-		start(
+		startNavigator(
+			navigators,
 			[
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
@@ -287,7 +283,8 @@ describe('Navigator — history mode: link interception', () => {
 
 	it('does not intercept a download link', () => {
 		settleHistory('/')
-		start(
+		startNavigator(
+			navigators,
 			[
 				{ path: '/', meta: { page: 'home' } },
 				{ path: '/tokens', meta: { page: 'tokens' } },
@@ -307,7 +304,7 @@ describe('Navigator — history mode: link interception', () => {
 describe('Navigator — guard matrix', () => {
 	it('commits when the guard synchronously allows', async () => {
 		await setHash('#/tokens')
-		const navigator = start([{ path: '/tokens', meta: { page: 'tokens' } }], {
+		const navigator = startNavigator(navigators, [{ path: '/tokens', meta: { page: 'tokens' } }], {
 			guard: () => true,
 		})
 		await waitForDelay() // the guard's verdict is always awaited, even when returned synchronously
@@ -330,7 +327,7 @@ describe('Navigator — guard matrix', () => {
 
 	it('commits after an async allow', async () => {
 		const deferred = Promise.withResolvers<boolean>()
-		const navigator = start([{ path: '/tokens', meta: { page: 'tokens' } }], {
+		const navigator = startNavigator(navigators, [{ path: '/tokens', meta: { page: 'tokens' } }], {
 			guard: () => deferred.promise,
 		})
 		expect(navigator.active).toBeUndefined() // guard still pending
@@ -496,7 +493,7 @@ describe('Navigator — the navigate event', () => {
 	it('emits navigate with the resolved match on every navigation', async () => {
 		await setHash('#/tokens')
 		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/users/:id', meta: { page: 'user' } },
 		])
@@ -550,7 +547,7 @@ describe('Navigator — the navigate event', () => {
 describe('Navigator — start / stop / destroy lifecycle', () => {
 	it('stop() removes the listener — a later hashchange no longer resolves', async () => {
 		await setHash('#/tokens')
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
@@ -562,7 +559,7 @@ describe('Navigator — start / stop / destroy lifecycle', () => {
 
 	it('start() is idempotent — a second call does not double-register the listener', async () => {
 		await setHash('#/tokens')
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])
@@ -576,14 +573,14 @@ describe('Navigator — start / stop / destroy lifecycle', () => {
 	})
 
 	it('stop() is idempotent — a second call is a no-op', () => {
-		const navigator = start([{ path: '/tokens', meta: { page: 'tokens' } }])
+		const navigator = startNavigator(navigators, [{ path: '/tokens', meta: { page: 'tokens' } }])
 		navigator.stop()
 		expect(() => navigator.stop()).not.toThrow()
 	})
 
 	it('destroy() stops listening and tears down the emitter', async () => {
 		await setHash('#/tokens')
-		const navigator = start([
+		const navigator = startNavigator(navigators, [
 			{ path: '/tokens', meta: { page: 'tokens' } },
 			{ path: '/palette', meta: { page: 'palette' } },
 		])

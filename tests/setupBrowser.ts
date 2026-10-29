@@ -1,5 +1,9 @@
-import type { NavigatorInterface } from '../src/browser/types.js'
+import type { NavigatorInterface, NavigatorOptions } from '../src/browser/types.js'
+import type { createRecorder } from '@orkestrel/test'
 import { waitForDelay } from '@orkestrel/test'
+import { createRouter } from '@src/core'
+import { createEmitter } from '@orkestrel/emitter'
+import { createNavigator } from '../src/browser/index.js'
 
 // ── Browser-test setup ─────────────────────────────────────────────────────────
 //
@@ -154,4 +158,38 @@ export class TestClickVerdict {
 		this.#prevented = event.defaultPrevented
 		event.preventDefault()
 	}
+}
+
+/** Describes a page route's metadata. */
+export interface PageMeta {
+	readonly page: string
+}
+
+/** Creates an inert navigator that records its destruction. */
+export function createStubNavigator(
+	recorder: ReturnType<typeof createRecorder<readonly [string]>>,
+	id: string,
+): NavigatorInterface<unknown> {
+	return {
+		router: createRouter(),
+		emitter: createEmitter(),
+		active: undefined,
+		start: () => {},
+		stop: () => {},
+		navigate: () => {},
+		match: () => undefined,
+		destroy: () => recorder.handler(id),
+	}
+}
+
+/** Creates, tracks, and starts a navigator for a page scenario. */
+export function startNavigator(
+	navigators: Array<NavigatorInterface<PageMeta>>,
+	routes: ReadonlyArray<{ readonly path: string; readonly meta: PageMeta }>,
+	options?: Omit<Partial<NavigatorOptions<PageMeta>>, 'routes'>,
+): NavigatorInterface<PageMeta> {
+	const navigator = createNavigator<PageMeta>({ routes, ...options })
+	navigators.push(navigator)
+	navigator.start()
+	return navigator
 }

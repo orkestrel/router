@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { createRecorder } from '@orkestrel/test'
+import { buildRequest, sendResponse } from '../src/server/helpers.js'
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { resolveRoot } from '@orkestrel/test'
@@ -105,5 +107,68 @@ export function countResponseListeners(response: ServerResponse): ResponseListen
 		drain: response.listenerCount('drain'),
 		close: response.listenerCount('close'),
 		error: response.listenerCount('error'),
+	}
+}
+
+/** Receives a drain event without changing state. */
+export function handleDrain(): void {}
+
+/** Records a real request body and ends its response. */
+export async function captureBody(
+	request: IncomingMessage,
+	response: ServerResponse,
+	captured: ReturnType<typeof createRecorder<[string]>>,
+): Promise<void> {
+	const built = buildRequest(request)
+	captured.handler(await built.text())
+	response.end('ok')
+}
+
+/** Observes completion and failure of a real response send. */
+export class ResponseSend {
+	#settled = false
+	#failure: unknown
+	readonly #done = Promise.withResolvers<void>()
+
+	get settled(): boolean {
+		return this.#settled
+	}
+
+	get failure(): unknown {
+		return this.#failure
+	}
+
+	get done(): Promise<void> {
+		return this.#done.promise
+	}
+
+	async execute(response: Response, target: ServerResponse): Promise<void> {
+		try {
+			await sendResponse(response, target)
+			this.#settled = true
+		} catch (error) {
+			this.#failure = error
+		} finally {
+			this.#done.resolve()
+		}
+	}
+}
+
+/** Collects a resumed response and releases its socket resources. */
+export async function collectResponse(
+	paused: PausedResponseInterface,
+	target: ServerResponse,
+	received: Promise<Buffer>,
+	sent: Promise<void>,
+): Promise<readonly [Buffer, ReturnType<typeof countResponseListeners>]> {
+	try {
+		paused.response.resume()
+		const output = await received
+		await sent
+		return [output, countResponseListeners(target)]
+	} finally {
+		paused.response.destroy()
+		paused.request.destroy()
+		await paused.server.close()
 	}
 }
