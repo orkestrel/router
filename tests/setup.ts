@@ -21,6 +21,19 @@ export interface TestBodyInterface {
 	readonly pulls: number
 }
 
+/** Counts pulls made by one stream fixture. */
+export class TestPullCounter {
+	#count = 0
+
+	get count(): number {
+		return this.#count
+	}
+
+	advance(): number {
+		return ++this.#count
+	}
+}
+
 /**
  * Creates a finite byte stream that records each pull from its consumer.
  *
@@ -29,18 +42,18 @@ export interface TestBodyInterface {
  * @returns A stream fixture exposing the body and its current pull total
  */
 export function createTestBody(chunk: Uint8Array, count: number): TestBodyInterface {
-	let pulls = 0
+	const pulls = new TestPullCounter()
 	const body = new ReadableStream<Uint8Array>({
 		pull(controller) {
-			pulls += 1
+			const pulled = pulls.advance()
 			controller.enqueue(chunk)
-			if (pulls === count) controller.close()
+			if (pulled === count) controller.close()
 		},
 	})
 	return {
 		body,
 		get pulls() {
-			return pulls
+			return pulls.count
 		},
 	}
 }

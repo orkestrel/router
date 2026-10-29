@@ -98,35 +98,35 @@ describe('resolveLocationPath — history mode', () => {
 })
 
 describe('findAnchor', () => {
-	it('finds an anchor that is the event target itself', () => {
+	it('finds an anchor that is the event target itself', async () => {
 		const anchor = document.createElement('a')
 		anchor.href = '/x'
 		document.body.append(anchor)
 		try {
-			let found: HTMLAnchorElement | undefined
+			const found = Promise.withResolvers<HTMLAnchorElement | undefined>()
 			anchor.addEventListener('click', (inner) => {
-				found = findAnchor(inner)
+				found.resolve(findAnchor(inner))
 			})
 			safeClick(anchor)
-			expect(found).toBe(anchor)
+			expect(await found.promise).toBe(anchor)
 		} finally {
 			anchor.remove()
 		}
 	})
 
-	it('finds an enclosing anchor when the click lands on a nested child', () => {
+	it('finds an enclosing anchor when the click lands on a nested child', async () => {
 		const anchor = document.createElement('a')
 		anchor.href = '/x'
 		const child = document.createElement('span')
 		anchor.append(child)
 		document.body.append(anchor)
 		try {
-			let found: HTMLAnchorElement | undefined
+			const found = Promise.withResolvers<HTMLAnchorElement | undefined>()
 			document.addEventListener('click', (inner) => {
-				found = findAnchor(inner)
+				found.resolve(findAnchor(inner))
 			})
 			safeClick(child)
-			expect(found).toBe(anchor)
+			expect(await found.promise).toBe(anchor)
 		} finally {
 			anchor.remove()
 		}

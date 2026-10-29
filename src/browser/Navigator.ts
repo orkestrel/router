@@ -228,15 +228,23 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 		from: RouterMatch<Meta> | undefined,
 		handle: AbortInterface,
 	): Promise<void> {
-		let verdict: boolean
-		try {
-			verdict = await guard(to, from, handle.signal)
-		} catch (error) {
-			this.#surface(error)
-			return
-		}
+		const verdict = await this.#verdict(guard, to, from, handle)
 		if (handle.signal.aborted || !verdict) return
 		this.#commit(to)
+	}
+
+	async #verdict(
+		guard: NonNullable<NavigatorOptions<Meta>['guard']>,
+		to: RouterMatch<Meta>,
+		from: RouterMatch<Meta> | undefined,
+		handle: AbortInterface,
+	): Promise<boolean> {
+		try {
+			return await guard(to, from, handle.signal)
+		} catch (error) {
+			this.#surface(error)
+			return false
+		}
 	}
 
 	// Route a guard throw to the `error` handler (the Emitter pattern's own channel, not a listener

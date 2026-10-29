@@ -24,6 +24,16 @@ interface AppState {
 	readonly userId: string
 }
 
+const handleParams: RouteHandler<'/users/:id/posts/:slug'> = (_request, context) => {
+	expectTypeOf(context.params).toEqualTypeOf<{ readonly id: string; readonly slug: string }>()
+	return new Response(context.params.id)
+}
+
+const handleState: RouteHandler<'/health', AppState> = (_request, context) => {
+	expectTypeOf(context.state).toEqualTypeOf<AppState>()
+	return new Response(context.state.userId)
+}
+
 describe('createDispatcher — factory return type', () => {
 	it('returns a Dispatcher instance implementing DispatcherInterface', () => {
 		const dispatcher = createDispatcher()
@@ -34,19 +44,11 @@ describe('createDispatcher — factory return type', () => {
 
 describe('RouteHandler — context typing per Path', () => {
 	it('types context.params from the literal Path through PathParams', () => {
-		const handler: RouteHandler<'/users/:id/posts/:slug'> = (_request, context) => {
-			expectTypeOf(context.params).toEqualTypeOf<{ readonly id: string; readonly slug: string }>()
-			return new Response(context.params.id)
-		}
-		expectTypeOf(handler).toBeFunction()
+		expectTypeOf(handleParams).toBeFunction()
 	})
 
 	it('types context.state from TState', () => {
-		const handler: RouteHandler<'/health', AppState> = (_request, context) => {
-			expectTypeOf(context.state).toEqualTypeOf<AppState>()
-			return new Response(context.state.userId)
-		}
-		expectTypeOf(handler).toBeFunction()
+		expectTypeOf(handleState).toBeFunction()
 	})
 
 	it('resolves an empty params record for a parameterless Path', () => {
@@ -346,14 +348,9 @@ describe('Dispatcher — registration boundary guard', () => {
 describe('Dispatcher — unknown verb', () => {
 	it('routes an unknown method (for example PURGE) against an unregistered path to unmatched, never a throw', async () => {
 		const dispatcher = createDispatcher()
-		let response: Response | undefined
-		await expect(async () => {
-			response = await dispatcher.handle(
-				new Request('http://x/nope', { method: 'PURGE' }),
-				undefined,
-			)
-		}).not.toThrow()
-		expect(response?.status).toBe(404)
+		const response = dispatcher.handle(new Request('http://x/nope', { method: 'PURGE' }), undefined)
+		await expect(response).resolves.toBeInstanceOf(Response)
+		expect((await response).status).toBe(404)
 		dispatcher.destroy()
 	})
 
@@ -406,17 +403,17 @@ describe('Dispatcher — handler throw propagation', () => {
 describe('Dispatcher — state pass-through', () => {
 	it('threads a typed TState value into context.state unmodified', async () => {
 		const dispatcher = createDispatcher<AppState>()
-		let seen: AppState | undefined
+		const seen = Promise.withResolvers<AppState>()
 		dispatcher.add({
 			method: 'GET',
 			path: '/health',
 			handler: (_request, context) => {
-				seen = context.state
+				seen.resolve(context.state)
 				return new Response('ok')
 			},
 		})
 		await dispatcher.handle(new Request('http://x/health'), { userId: 'u1' })
-		expect(seen).toEqual({ userId: 'u1' })
+		expect(await seen.promise).toEqual({ userId: 'u1' })
 		dispatcher.destroy()
 	})
 })
@@ -424,16 +421,17 @@ describe('Dispatcher — state pass-through', () => {
 describe('Dispatcher — params/pattern/url correctness', () => {
 	it('resolves params, pattern, and url on a param route', async () => {
 		const dispatcher = createDispatcher()
-		let context: RouteContext<string> | undefined
+		const observed = Promise.withResolvers<RouteContext<string>>()
 		dispatcher.add({
 			method: 'GET',
 			path: '/users/:id',
 			handler: (_request, c) => {
-				context = c
+				observed.resolve(c)
 				return new Response('ok')
 			},
 		})
 		await dispatcher.handle(new Request('http://x/users/42?tab=posts'), undefined)
+		const context = await observed.promise
 		expect(context?.params).toEqual({ id: '42' })
 		expect(context?.pattern).toBe('/users/:id')
 		expect(context?.url.pathname).toBe('/users/42')

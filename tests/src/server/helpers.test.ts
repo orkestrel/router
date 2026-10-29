@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { PausedResponseInterface } from '../../setupServer.js'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { createDispatcher } from '../../../src/core/index.js'
@@ -7,6 +8,63 @@ import { createListener } from '../../../src/server/handlers.js'
 import { createRecorder, waitForCondition } from '@orkestrel/test'
 import { createTestBody } from '../../setup.js'
 import { countResponseListeners, startPausedResponse, startServer } from '../../setupServer.js'
+
+async function captureBody(
+	request: IncomingMessage,
+	response: ServerResponse,
+	captured: ReturnType<typeof createRecorder<[string]>>,
+): Promise<void> {
+	const built = buildRequest(request)
+	captured.handler(await built.text())
+	response.end('ok')
+}
+
+class ResponseSend {
+	#settled = false
+	#failure: unknown
+	readonly #done = Promise.withResolvers<void>()
+
+	get settled(): boolean {
+		return this.#settled
+	}
+
+	get failure(): unknown {
+		return this.#failure
+	}
+
+	get done(): Promise<void> {
+		return this.#done.promise
+	}
+
+	async execute(response: Response, target: ServerResponse): Promise<void> {
+		try {
+			await sendResponse(response, target)
+			this.#settled = true
+		} catch (error) {
+			this.#failure = error
+		} finally {
+			this.#done.resolve()
+		}
+	}
+}
+
+async function collectResponse(
+	paused: PausedResponseInterface,
+	target: ServerResponse,
+	received: Promise<Buffer>,
+	sent: Promise<void>,
+): Promise<readonly [Buffer, ReturnType<typeof countResponseListeners>]> {
+	try {
+		paused.response.resume()
+		const output = await received
+		await sent
+		return [output, countResponseListeners(target)]
+	} finally {
+		paused.response.destroy()
+		paused.request.destroy()
+		await paused.server.close()
+	}
+}
 
 // The test mirror of `src/server/helpers.ts` — pins the conversion pair over REAL
 // sockets (no mocks): `buildRequest` fidelity, client-disconnect →
@@ -51,11 +109,7 @@ describe('buildRequest', () => {
 	it('streams a POST body into the Request so it can be read back whole', async () => {
 		const captured = createRecorder<[string]>()
 		const server = await startServer((request, response) => {
-			void (async () => {
-				const built = buildRequest(request)
-				captured.handler(await built.text())
-				response.end('ok')
-			})()
+			void captureBody(request, response, captured)
 		})
 		await fetch(server.url, { method: 'POST', body: 'hello world' })
 		await server.close()
@@ -127,11 +181,7 @@ describe('buildRequest', () => {
 	it('streams a genuine Transfer-Encoding: chunked request body into the Request intact', async () => {
 		const captured = createRecorder<[string]>()
 		const server = await startServer((request, response) => {
-			void (async () => {
-				const built = buildRequest(request)
-				captured.handler(await built.text())
-				response.end('ok')
-			})()
+			void captureBody(request, response, captured)
 		})
 		const body = 'hello chunked world'
 		const first = body.slice(0, 5)
@@ -276,11 +326,11 @@ describe('sendResponse', () => {
 			const socket = net.connect(server.port, '127.0.0.1', () => {
 				socket.write('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n')
 			})
-			let data = ''
+			const chunks: string[] = []
 			socket.on('data', (chunk) => {
-				data += chunk.toString()
+				chunks.push(chunk.toString())
 			})
-			socket.on('end', () => resolve(data))
+			socket.on('end', () => resolve(chunks.join('')))
 		})
 		await server.close()
 
@@ -313,9 +363,7 @@ describe('sendResponse', () => {
 		const chunk = new Uint8Array(64 * 1024).fill(97)
 		const count = 512
 		const length = chunk.byteLength * count
-		let settled = false
-		let failure: unknown
-		const sent = Promise.withResolvers<void>()
+		const send = new ResponseSend()
 		const targetReady =
 			Promise.withResolvers<
 				readonly [
@@ -328,49 +376,31 @@ describe('sendResponse', () => {
 			(_request, response) => {
 				const source = createTestBody(chunk, count)
 				targetReady.resolve([response, countResponseListeners(response), source])
-				void sendResponse(
+				void send.execute(
 					new Response(source.body, { headers: { 'content-length': String(length) } }),
 					response,
-				).then(
-					() => {
-						settled = true
-						sent.resolve()
-					},
-					(error) => {
-						failure = error
-						sent.resolve()
-					},
 				)
 			},
 			{ highWaterMark: 1024 },
 		)
-		const { server, request, response: incoming } = paused
+		const { response: incoming } = paused
 		const [target, baseline, source] = await targetReady.promise
 		await waitForCondition(
 			'the paused response is parked under pressure',
 			() =>
-				source.pulls > 2 && countResponseListeners(target).drain - baseline.drain === 1 && !settled,
+				source.pulls > 2 &&
+				countResponseListeners(target).drain - baseline.drain === 1 &&
+				!send.settled,
 		)
 		const pressuredPulls = source.pulls
-		const pressuredSettled = settled
+		const pressuredSettled = send.settled
 		const pressured = countResponseListeners(target)
 		const chunks: Buffer[] = []
 		const received = Promise.withResolvers<Buffer>()
 		incoming.on('data', (part: Buffer) => chunks.push(part))
 		incoming.once('end', () => received.resolve(Buffer.concat(chunks)))
 		incoming.once('error', received.reject)
-		let output: Buffer | undefined
-		let final = baseline
-		try {
-			incoming.resume()
-			output = await received.promise
-			await sent.promise
-			final = countResponseListeners(target)
-		} finally {
-			incoming.destroy()
-			request.destroy()
-			await server.close()
-		}
+		const [output, final] = await collectResponse(paused, target, received.promise, send.done)
 
 		expect(pressuredPulls).toBeGreaterThan(2)
 		expect(pressuredPulls).toBeLessThan(count)
@@ -379,8 +409,8 @@ describe('sendResponse', () => {
 		expect(pressured.close - baseline.close).toBe(1)
 		expect(pressured.error - baseline.error).toBe(2)
 		expect(source.pulls).toBe(count)
-		expect(settled).toBe(true)
-		expect(failure).toBeUndefined()
+		expect(send.settled).toBe(true)
+		expect(send.failure).toBeUndefined()
 		expect(final).toEqual(baseline)
 		if (output === undefined) throw new Error('expected the complete pressured response body')
 		expect(output.byteLength).toBe(length)
@@ -390,8 +420,7 @@ describe('sendResponse', () => {
 	it('settles and removes pressure listeners when the consumer disconnects before drain', async () => {
 		const chunk = new Uint8Array(64 * 1024).fill(97)
 		const count = 512
-		let settled = false
-		let failure: unknown
+		const send = new ResponseSend()
 		const targetReady =
 			Promise.withResolvers<
 				readonly [
@@ -404,14 +433,7 @@ describe('sendResponse', () => {
 			(_request, response) => {
 				const source = createTestBody(chunk, count)
 				targetReady.resolve([response, countResponseListeners(response), source])
-				void sendResponse(new Response(source.body), response).then(
-					() => {
-						settled = true
-					},
-					(error) => {
-						failure = error
-					},
-				)
+				void send.execute(new Response(source.body), response)
 			},
 			{ highWaterMark: 1024 },
 		)
@@ -429,15 +451,15 @@ describe('sendResponse', () => {
 		await closed.promise
 		request.destroy()
 		await server.close()
-		await waitForCondition('the disconnected send settles', () => settled || failure !== undefined)
+		await send.done
 
 		expect(pressuredPulls).toBeGreaterThan(2)
 		expect(pressuredPulls).toBeLessThan(count)
 		expect(pressured.drain - baseline.drain).toBe(1)
 		expect(pressured.close - baseline.close).toBe(1)
 		expect(pressured.error - baseline.error).toBe(2)
-		expect(settled).toBe(true)
-		expect(failure).toBeUndefined()
+		expect(send.settled).toBe(true)
+		expect(send.failure).toBeUndefined()
 		const final = countResponseListeners(target)
 		expect(final.drain).toBeLessThanOrEqual(baseline.drain)
 		expect(final.close).toBeLessThanOrEqual(baseline.close)

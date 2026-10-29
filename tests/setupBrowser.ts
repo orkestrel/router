@@ -130,15 +130,28 @@ export function safeClick(
 	target: EventTarget,
 	options?: Parameters<typeof click>[1],
 ): { readonly event: MouseEvent; readonly prevented: boolean } {
-	let prevented = false
+	const verdict = new TestClickVerdict()
 	window.addEventListener(
 		'click',
 		(event) => {
-			prevented = event.defaultPrevented
-			event.preventDefault()
+			verdict.prevent(event)
 		},
 		{ once: true },
 	)
 	const event = click(target, options)
-	return { event, prevented }
+	return { event, prevented: verdict.prevented }
+}
+
+/** Records the interception verdict before preventing one click's native action. */
+export class TestClickVerdict {
+	#prevented = false
+
+	get prevented(): boolean {
+		return this.#prevented
+	}
+
+	prevent(event: Event): void {
+		this.#prevented = event.defaultPrevented
+		event.preventDefault()
+	}
 }

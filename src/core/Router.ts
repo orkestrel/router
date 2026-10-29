@@ -65,23 +65,25 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	}
 
 	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined {
-		let best: { entry: RouteEntry<Meta>; params: Readonly<Record<string, string>> } | undefined
-		for (let index = 0; index < this.#entries.length; index += 1) {
-			const entry = this.#entries[index]
+		const candidates = this.#entries.entries()
+		const best = candidates.reduce<
+			readonly [RouteEntry<Meta>, RouterMatch<Meta>['params']] | undefined
+		>((selected, [index, entry]) => {
 			const compiled = this.#compiled[index]
-			if (entry === undefined || compiled === undefined) continue
-			if (answers !== undefined && !answers(entry.meta)) continue
+			if (entry === undefined || compiled === undefined) return selected
+			if (answers !== undefined && !answers(entry.meta)) return selected
 			const params = matchPath(compiled, pathname)
-			if (params === undefined) continue
-			if (best === undefined || compareSpecificity(entry.path, best.entry.path) < 0)
-				best = { entry, params }
-		}
+			if (params === undefined) return selected
+			return selected === undefined || compareSpecificity(entry.path, selected[0].path) < 0
+				? [entry, params]
+				: selected
+		}, undefined)
 		if (best === undefined) return undefined
 		return {
-			path: best.entry.path,
-			params: best.params,
-			meta: best.entry.meta,
-			...(best.entry.name === undefined ? {} : { name: best.entry.name }),
+			path: best[0].path,
+			params: best[1],
+			meta: best[0].meta,
+			...(best[0].name === undefined ? {} : { name: best[0].name }),
 		}
 	}
 
@@ -89,14 +91,17 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	entries(pathname: string): ReadonlyArray<RouteEntry<Meta>>
 	entries(pathname?: string): ReadonlyArray<RouteEntry<Meta>> {
 		if (pathname === undefined) return [...this.#entries]
-		const out: Array<RouteEntry<Meta>> = []
-		for (let index = 0; index < this.#entries.length; index += 1) {
-			const entry = this.#entries[index]
-			const compiled = this.#compiled[index]
-			if (entry === undefined || compiled === undefined) continue
-			if (matchPath(compiled, pathname) !== undefined) out.push(entry)
-		}
-		return out
+		return this.#entries
+			.entries()
+			.flatMap(([index, entry]) => {
+				const compiled = this.#compiled[index]
+				return entry !== undefined &&
+					compiled !== undefined &&
+					matchPath(compiled, pathname) !== undefined
+					? [entry]
+					: []
+			})
+			.toArray()
 	}
 
 	group(prefix: string): GroupInterface<Meta> {

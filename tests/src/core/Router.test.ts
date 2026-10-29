@@ -20,6 +20,14 @@ interface PageMeta {
 	readonly page: string
 }
 
+function matchMethod(method: MethodMeta['method']): (meta: MethodMeta) => boolean {
+	return (meta) => meta.method === method
+}
+
+function matchTag(tag: string): (meta: MethodMeta) => boolean {
+	return (meta) => meta.tag === tag
+}
+
 describe('Router — registration', () => {
 	it('starts empty and counts registered entries', () => {
 		const router = new Router<PageMeta>()
@@ -168,23 +176,18 @@ describe('Router — wildcard matching and static > param > wildcard precedence'
 })
 
 describe('Router — the `answers` override seam (method-dimensioned / Dispatcher consumer)', () => {
-	const byMethod =
-		(method: MethodMeta['method']) =>
-		(meta: MethodMeta): boolean =>
-			meta.method === method
-
 	it('filters candidates by the predicate before matching the path', () => {
 		const router = new Router<MethodMeta>()
 		router.add({ path: '/users', meta: { method: 'GET', tag: 'read' } })
 		router.add({ path: '/users', meta: { method: 'POST', tag: 'create' } })
-		expect(router.match('/users', byMethod('GET'))?.meta.tag).toBe('read')
-		expect(router.match('/users', byMethod('POST'))?.meta.tag).toBe('create')
+		expect(router.match('/users', matchMethod('GET'))?.meta.tag).toBe('read')
+		expect(router.match('/users', matchMethod('POST'))?.meta.tag).toBe('create')
 	})
 
 	it('returns undefined when the path matches but no entry answers', () => {
 		const router = new Router<MethodMeta>()
 		router.add({ path: '/users', meta: { method: 'GET', tag: 'read' } })
-		expect(router.match('/users', byMethod('POST'))).toBeUndefined()
+		expect(router.match('/users', matchMethod('POST'))).toBeUndefined()
 	})
 
 	it('still applies specificity AMONG the answering candidates', () => {
@@ -192,8 +195,8 @@ describe('Router — the `answers` override seam (method-dimensioned / Dispatche
 		router.add({ path: '/users/:id', meta: { method: 'GET', tag: 'profile' } })
 		router.add({ path: '/users/me', meta: { method: 'GET', tag: 'self' } })
 		router.add({ path: '/users/me', meta: { method: 'POST', tag: 'update-self' } })
-		expect(router.match('/users/me', byMethod('GET'))?.meta.tag).toBe('self')
-		expect(router.match('/users/me', byMethod('POST'))?.meta.tag).toBe('update-self')
+		expect(router.match('/users/me', matchMethod('GET'))?.meta.tag).toBe('self')
+		expect(router.match('/users/me', matchMethod('POST'))?.meta.tag).toBe('update-self')
 	})
 
 	it('without `answers`, every entry answers (the always-answers case)', () => {
@@ -437,19 +440,14 @@ describe('Router — wildcard + trailing-slash interplay', () => {
 })
 
 describe('Router — answers-seam filtering leaves specificity intact', () => {
-	const byTag =
-		(tag: string) =>
-		(meta: MethodMeta): boolean =>
-			meta.tag === tag
-
 	it('still ranks literal over param over wildcard among only the answering candidates', () => {
 		const router = new Router<MethodMeta>()
 		router.add({ path: '/users/*rest', meta: { method: 'GET', tag: 'shared' } })
 		router.add({ path: '/users/:id', meta: { method: 'GET', tag: 'shared' } })
 		router.add({ path: '/users/me', meta: { method: 'GET', tag: 'shared' } })
 		router.add({ path: '/users/me', meta: { method: 'POST', tag: 'other' } })
-		expect(router.match('/users/me', byTag('shared'))?.path).toBe('/users/me')
-		expect(router.match('/users/7', byTag('shared'))?.path).toBe('/users/:id')
+		expect(router.match('/users/me', matchTag('shared'))?.path).toBe('/users/me')
+		expect(router.match('/users/7', matchTag('shared'))?.path).toBe('/users/:id')
 	})
 })
 

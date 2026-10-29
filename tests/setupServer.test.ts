@@ -51,15 +51,16 @@ describe('startPausedResponse', () => {
 	})
 })
 
+function handleDrain(): void {}
+
 describe('countResponseListeners', () => {
 	it('reads the real listener totals installed on a live response, rising and falling with them', async () => {
 		const server = await startServer((_request, response) => {
 			const before = countResponseListeners(response)
-			const onDrain = () => {}
-			response.on('drain', onDrain)
+			response.on('drain', handleDrain)
 			const after = countResponseListeners(response)
 			expect(after.drain).toBe(before.drain + 1)
-			response.off('drain', onDrain)
+			response.off('drain', handleDrain)
 			const restored = countResponseListeners(response)
 			expect(restored.drain).toBe(before.drain)
 			response.end('done')

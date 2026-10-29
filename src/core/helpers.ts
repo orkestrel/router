@@ -129,7 +129,6 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * ```
  */
 export function compilePath(path: string, sensitive = true): CompiledPath {
-	const params: string[] = []
 	// Normalize ONE trailing slash off the pattern so `/users/` compiles like `/users`
 	// — except the root `/` (and the empty pattern), which must keep matching `/` / `''`.
 	const normalized = canonicalizePath(path)
@@ -151,18 +150,19 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 		// {@link classifySegment} assigns is exactly the shape compiled here.
 		const tier = classifySegment(segment, isFinal)
 		if (tier === TIER_WILDCARD) {
-			params.push(segment.slice(1))
-			return '(.+)'
+			return { pattern: '(.+)', param: segment.slice(1) }
 		}
 		if (tier === TIER_PARAM) {
 			const match = /^:([A-Za-z_]\w*)/.exec(segment)
 			const name = match?.[1] ?? ''
-			params.push(name)
-			return `([^/]+)${escapeRegExp(segment.slice(1 + name.length))}`
+			return { pattern: `([^/]+)${escapeRegExp(segment.slice(1 + name.length))}`, param: name }
 		}
-		return escapeRegExp(segment)
+		return { pattern: escapeRegExp(segment) }
 	})
-	const pattern = compiledSegments.join('/')
+	const pattern = compiledSegments.map((segment) => segment.pattern).join('/')
+	const params = compiledSegments.flatMap((segment) =>
+		segment.param === undefined ? [] : [segment.param],
+	)
 	// Allow ONE optional trailing slash before the `$` anchor (Express `strict: false`),
 	// EXCEPT for the root `/` and the empty pattern — those anchor exactly so they keep
 	// matching only `/` / `''` (a bare `/?` there would let `''` match `/` and vice versa).
@@ -229,13 +229,13 @@ export function matchPath(
 ): Readonly<Record<string, string>> | undefined {
 	const result = compiled.regex.exec(pathname)
 	if (result === null) return undefined
-	const params: Record<string, string> = {}
-	for (let index = 0; index < compiled.params.length; index += 1) {
-		const name = compiled.params[index]
+	const params = compiled.params.entries().flatMap(([index, name]) => {
 		const value = result[index + 1]
-		if (name !== undefined && value !== undefined) params[name] = decodeParam(value)
-	}
-	return Object.freeze(params)
+		if (name === undefined || value === undefined) return []
+		const decoded = decodeParam(value)
+		return name === '__proto__' ? [] : [[name, decoded]]
+	})
+	return Object.freeze(Object.fromEntries(params))
 }
 
 /**
@@ -338,8 +338,8 @@ export function computeSpecificity(path: string): readonly number[] {
 export function compareSpecificity(a: string, b: string): number {
 	const left = computeSpecificity(a)
 	const right = computeSpecificity(b)
-	const length = Math.max(left.length, right.length)
-	for (let index = 0; index < length; index += 1) {
+	const longest = left.length >= right.length ? left : right
+	for (const [index] of longest.entries()) {
 		// A missing segment ranks below any real one (the shorter path is less specific).
 		const tierA = left[index] ?? -1
 		const tierB = right[index] ?? -1
