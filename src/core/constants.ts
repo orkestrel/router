@@ -7,14 +7,14 @@
 /**
  * Lists the HTTP methods a {@link import('./types.js').DispatcherInterface} registers
  * routes under, in canonical order — a frozen literal tuple, and the single source the
- * {@link import('./types.js').Method} type, {@link METHODS}, and `parseMethod` are all
+ * {@link import('./types.js').Method} type, {@link HTTP_METHODS}, and `parseMethod` are all
  * derived from.
  *
  * @remarks
  * A frozen tuple of the verbs: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`,
  * `HEAD`, `OPTIONS`. Adding a verb here widens the `Method` type, the
- * {@link METHODS} membership set, and the `parseMethod` narrowing together, so
- * the method set cannot drift between them. Prefer {@link METHODS} for a
+ * {@link HTTP_METHODS} membership set, and the `parseMethod` narrowing together, so
+ * the method set cannot drift between them. Prefer {@link HTTP_METHODS} for a
  * membership test; use this tuple where order or literal typing matters.
  *
  * @example
@@ -36,7 +36,7 @@ export const METHOD_LIST = Object.freeze([
 /**
  * Holds every HTTP method a {@link import('./types.js').DispatcherInterface} registers
  * routes under as a `ReadonlySet` — backs the registration guard (`add` rejects any
- * `method` outside this set) and the auto-`OPTIONS` `Allow` derivation.
+ * `method` outside this set).
  *
  * @remarks
  * A `ReadonlySet` built from {@link METHOD_LIST}, so it carries exactly the
@@ -48,11 +48,11 @@ export const METHOD_LIST = Object.freeze([
  *
  * @example
  * ```ts
- * METHODS.has('GET') // true
- * METHODS.has('TRACE') // false
+ * HTTP_METHODS.has('GET') // true
+ * HTTP_METHODS.has('TRACE') // false
  * ```
  */
-export const METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
+export const HTTP_METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
 
 /**
  * Names the specificity tier for a **literal** path segment (`/users`) — the highest

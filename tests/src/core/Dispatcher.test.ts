@@ -318,6 +318,16 @@ describe('Dispatcher — registration boundary guard', () => {
 		expect(() =>
 			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
 		).toThrow(expect.objectContaining({ code: 'literal' }))
+		expect(() =>
+			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
+		).toThrow(
+			expect.objectContaining({
+				context: expect.objectContaining({
+					limit: 'GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
+					path: ['input', 'method'],
+				}),
+			}),
+		)
 		dispatcher.destroy()
 	})
 })

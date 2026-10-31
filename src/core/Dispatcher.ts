@@ -15,7 +15,7 @@ import type {
 import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
 import { ContractError, isArray, isFunction, isString, preview } from '@orkestrel/contract'
-import { METHODS } from './constants.js'
+import { HTTP_METHODS } from './constants.js'
 import { computeDispatchKey } from './helpers.js'
 import { parseMethod } from './parsers.js'
 import { Router } from './Router.js'
@@ -34,7 +34,7 @@ import { DispatchGroup } from './DispatchGroup.js'
  *   constructed with a `key` function so registering the same method+path
  *   twice REPLACES the prior route in place.
  * - **Registration boundary guard.** `add` validates each input's
- *   `handler` (`isFunction`) and `method` (must be in {@link METHODS}) —
+ *   `handler` (`isFunction`) and `method` (must be in {@link HTTP_METHODS}) —
  *   throws a `ContractError` on a malformed registration; path validation is
  *   delegated to the underlying `Router`'s own guard. `match`/`handle` stay
  *   guard-free.
@@ -157,12 +157,12 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 					received: preview(input.handler),
 				},
 			})
-		if (!isString(input.method) || !METHODS.has(input.method))
+		if (!isString(input.method) || !HTTP_METHODS.has(input.method))
 			throw new ContractError('a route method must be a registrable HTTP method', {
 				code: 'literal',
 				context: {
 					path: ['input', 'method'],
-					limit: [...METHODS].join(', '),
+					limit: [...HTTP_METHODS].join(', '),
 					received: preview(input.method),
 				},
 			})

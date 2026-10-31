@@ -426,7 +426,7 @@ export interface GroupInterface<Meta> {
 /**
  * Names the HTTP methods a {@link DispatcherInterface} dimensions dispatch over —
  * derived from {@link import('./constants.js').METHOD_LIST}, whose membership
- * counterpart is {@link import('./constants.js').METHODS}.
+ * counterpart is {@link import('./constants.js').HTTP_METHODS}.
  *
  * @remarks
  * Resolves to `'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' |
@@ -618,7 +618,7 @@ export interface DispatcherInterface<TState = undefined> {
 	 *
 	 * @remarks
 	 * A registration is malformed when its path is not `/`-prefixed, its handler is not
-	 * a function, or its method sits outside {@link import('./constants.js').METHODS}.
+	 * a function, or its method sits outside {@link import('./constants.js').HTTP_METHODS}.
 	 * Path validation is delegated to the underlying router's own guard.
 	 */
 	add<Path extends string>(input: RouteInput<Path, TState>): void
