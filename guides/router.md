@@ -72,7 +72,6 @@ A `Shape` cell holds the constant's declared type.
 
 | Name                   | Kind     | Signature                                                                                                      | Summary                                                                                                                                                                                                                                                                                                                        |
 | ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `escapeRegExp`         | function | `(value: string) => string`                                                                                    | Escapes every regex metacharacter in a literal string so it can be embedded inside a larger `RegExp` source without being interpreted as syntax.                                                                                                                                                                               |
 | `canonicalizePath`     | function | `(path: string) => string`                                                                                     | Canonicalizes a route path for registry identity — strips a single trailing slash, except the root `/` (and the empty pattern). The trailing-slash fold `compilePath` normalizes a pattern through, so identity agrees with the matcher.                                                                                       |
 | `computeDispatchKey`   | function | `(entry: RouteEntry<{ readonly method: Method; }>) => string`                                                  | Computes the canonical `METHOD /path` registry key for a method-dimensioned dispatcher route.                                                                                                                                                                                                                                  |
 | `compilePath`          | function | `(path: string, sensitive?: boolean) => CompiledPath`                                                          | Compiles a route path pattern into an anchored regex and its ordered param names.                                                                                                                                                                                                                                              |
@@ -701,8 +700,8 @@ const server = http.createServer((incoming, response) => {
   `DispatchGroup` direct construction and group + nested group registration
   with prefixes composed.
 - [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) —
-  `escapeRegExp`, `canonicalizePath`, `computeDispatchKey`, `compilePath` (literal/param/wildcard,
-  trailing-slash folding, case sensitivity, the wildcard-not-final throw),
+  `canonicalizePath`, `computeDispatchKey`, `compilePath` (literal/param/wildcard, escaped
+  regex metacharacters, trailing-slash folding, case sensitivity, the wildcard-not-final throw),
   `decodeParam` (including a malformed `%` escape), `matchPath`,
   `classifySegment` (the literal-vs-param classification fix regression
   case), `computeSpecificity`, `compareSpecificity`, `joinPaths`, and

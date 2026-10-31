@@ -1,5 +1,5 @@
 import type { CompiledPath, Method, RouteEntry, RouteInput } from './types.js'
-import { ContractError, preview } from '@orkestrel/contract'
+import { ContractError, escapeRegExp, preview } from '@orkestrel/contract'
 import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 
 // The PURE path-matching primitives (self-describing helper naming — module scope,
@@ -9,30 +9,6 @@ import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 // platform global valid in Node and the browser alike) — NO DOM, NO `node:*` — so
 // the SAME engine drives a method-dimensioned server dispatcher and a method-less
 // browser navigator.
-
-/**
- * Escapes every regex metacharacter in a literal string so it can be embedded
- * inside a larger `RegExp` source without being interpreted as syntax.
- *
- * @remarks
- * {@link compilePath} escapes the literal segments of a route pattern with this
- * before splicing in `:name` / `*name` capture groups, so a path like
- * `/files/:name.json` matches the `.` literally rather than as "any character".
- * Pure and total — never throws.
- *
- * @param value - The literal string to escape
- * @returns `value` with every regex metacharacter backslash-escaped
- *
- * @example
- * ```ts
- * escapeRegExp('a.b+c') // 'a\\.b\\+c'
- * new RegExp(`^${escapeRegExp('a.b')}$`).test('a.b') // true
- * new RegExp(`^${escapeRegExp('a.b')}$`).test('axb') // false
- * ```
- */
-export function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
 
 /**
  * Canonicalizes a route path for registry identity — strips a single trailing
@@ -93,10 +69,10 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * becomes a `(.+)` capture spanning the REST of the path including slashes — a
  * wildcard segment anywhere but last is a registration-time programmer error
  * and throws a `ContractError` at the construction/registration boundary. Every regex
- * metacharacter in a literal segment is escaped first ({@link escapeRegExp}),
- * so a path like `/files/:name.json` matches the `.` literally apart from the
- * param. The regex is anchored (`^…$`), so it matches the whole pathname, not
- * a prefix.
+ * metacharacter in a literal segment is escaped first
+ * ({@link import('@orkestrel/contract').escapeRegExp}), so a path like
+ * `/files/:name.json` matches the `.` literally apart from the param. The
+ * regex is anchored (`^…$`), so it matches the whole pathname, not a prefix.
  *
  * **Trailing slash is INSENSITIVE** (Express's `strict: false` default): a
  * single trailing slash on the request path is OPTIONAL, so `/users` matches

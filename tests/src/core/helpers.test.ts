@@ -9,7 +9,6 @@ import {
 	computeDispatchKey,
 	decodeParam,
 	defineRoute,
-	escapeRegExp,
 	joinPaths,
 	matchPath,
 	computeSpecificity,
@@ -20,18 +19,6 @@ import {
 // root exemptions, the case-sensitivity flag, the wildcard-mid-path guard, and
 // the specificity classification fix that shares one segment parser with
 // `compilePath`.
-
-describe('escapeRegExp', () => {
-	it('escapes every regex metacharacter so the result matches only the literal string', () => {
-		expect(escapeRegExp('a.b+c')).toBe('a\\.b\\+c')
-		expect(new RegExp(`^${escapeRegExp('a.b')}$`).test('a.b')).toBe(true)
-		expect(new RegExp(`^${escapeRegExp('a.b')}$`).test('axb')).toBe(false)
-	})
-
-	it('returns an unescaped string unchanged when it has no metacharacters', () => {
-		expect(escapeRegExp('users')).toBe('users')
-	})
-})
 
 describe('canonicalizePath', () => {
 	it('strips a single trailing slash from a non-root path', () => {
@@ -80,6 +67,13 @@ describe('compilePath — literal + param compile/match round-trips', () => {
 		const compiled = compilePath('/files/:name.json')
 		expect(compiled.regex.test('/files/a.json')).toBe(true)
 		expect(compiled.regex.test('/files/aXjson')).toBe(false)
+	})
+
+	it('escapes regex metacharacters in a literal segment with no param', () => {
+		const compiled = compilePath('/v1.0/c++')
+		expect(compiled.regex.test('/v1.0/c++')).toBe(true)
+		expect(compiled.regex.test('/v1x0/c++')).toBe(false)
+		expect(compiled.regex.test('/v1.0/cc')).toBe(false)
 	})
 
 	it('captures only the identifier head of a :name param, stopping before a literal suffix', () => {
