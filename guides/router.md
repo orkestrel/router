@@ -58,8 +58,6 @@ Browser and server usage appear under [Patterns](#patterns).
 
 ### Constants
 
-A `Shape` cell holds the constant's declared type.
-
 | Name            | Kind  | Signature                                                               | Summary                                                                                                                                                                                                              |
 | --------------- | ----- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `METHOD_LIST`   | const | `readonly ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]` | Lists the HTTP methods a `DispatcherInterface` registers routes under, in canonical order — a frozen literal tuple, and the single source the `Method` type, `HTTP_METHODS`, and `parseMethod` are all derived from. |
@@ -97,8 +95,6 @@ A `Shape` cell holds the constant's declared type.
 
 ### Guards
 
-In a guard table a `Shape` cell holds the type the guard narrows to.
-
 | Name                | Kind     | Signature                                                      | Summary                                                                                                                                                                    |
 | ------------------- | -------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isEncryptedSocket` | function | `(socket: unknown) => socket is { readonly encrypted: true; }` | Determines whether a `node:http` connection socket is TLS-encrypted — the total, never-throwing narrow `buildRequest` uses to pick the derived scheme (`https` vs `http`). |
@@ -121,8 +117,6 @@ In a guard table a `Shape` cell holds the type the guard narrows to.
 | `Navigator`     | class | `new <Meta>(options: NavigatorOptions<Meta>) => NavigatorInterface<Meta>`                             | Represents the headless History/hash navigation entity — composes one core `Router<Meta>`, resolving the current location on `start()` and every subsequent navigation event, tracking `active`, and emitting `navigate` through the core `Emitter`. No `render` / `outlet` — the consumer owns rendering. |
 
 ### Types
-
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`.
 
 | Name                     | Kind      | Signature                                                                                                                                                                                                                                                                                                                                                                         | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -160,7 +154,7 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 The `count` member of `RouterInterface`, the `prefix` member of `GroupInterface` and
 `DispatchGroupInterface`, the `router` and `emitter` members of `DispatcherInterface`, and the
 `router`, `emitter`, and `active` members of `NavigatorInterface` are all `readonly` data members
-(the preceding Surface rows) — the call-signature members each `Shape` cell names after `plus` are
+(the preceding Surface rows) — the call-signature members each `Signature` cell names with parentheses are
 documented under [Methods](#methods).
 
 ## Methods
