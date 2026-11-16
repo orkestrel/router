@@ -85,7 +85,7 @@ Browser and server usage appear under [Patterns](#patterns).
 | `defineRoute`          | function | `<const Path extends string, TState = undefined>(input: RouteInput<Path, TState>) => RouteInput<Path, TState>` | Provides an identity pass-through for a `RouteInput` that pins its `Path` generic to the literal registration-site string, so `context.params` types correctly through `PathParams` without an explicit type argument.                                                                                                         |
 | `computeNavigationKey` | function | `(entry: RouteEntry<unknown>) => string`                                                                       | Computes the canonical path key a `Navigator` registers a browser navigation route under.                                                                                                                                                                                                                                      |
 | `extractHashPath`      | function | `(hash: string) => string`                                                                                     | Extracts the `/`-prefixed pathname from a `location.hash` value — strips the leading `#` (keeping the route's own leading `/`) and any `?query` suffix.                                                                                                                                                                        |
-| `resolveLocationPath`  | function | `(location: Pick<Location, 'hash' \| 'pathname'>, history: boolean, base?: string) => string`                  | Resolves the `/`-prefixed pathname to match for the current location, in either navigation mode — the one seam `extractHashPath` (hash mode) and history-mode base-stripping share.                                                                                                                                            |
+| `resolveLocationPath`  | function | `(location: Pick<Location, 'hash' \| 'pathname'>, history: boolean, base?: string) => string \| undefined`     | Resolves the `/`-prefixed pathname to match for the current location, in either navigation mode — the one seam `extractHashPath` (hash mode) and history-mode base-stripping share.                                                                                                                                            |
 | `findAnchor`           | function | `(event: Event) => HTMLAnchorElement \| undefined`                                                             | Finds the nearest enclosing `<a>` element a DOM event originated from, by walking its composed path — the pure lookup behind history-mode link interception.                                                                                                                                                                   |
 | `buildRequest`         | function | `(message: IncomingMessage, options?: RequestOptions) => Request`                                              | Builds a fetch-standard `Request` from a `node:http` `IncomingMessage` — the server-adapter half of the fetch/node conversion seam.                                                                                                                                                                                            |
 | `sendResponse`         | function | `(response: Response, target: ServerResponse) => Promise<void>`                                                | Writes a fetch-standard `Response` back to a `node:http` `ServerResponse` — the reverse half of the fetch/node conversion seam.                                                                                                                                                                                                |
@@ -150,7 +150,7 @@ Browser and server usage appear under [Patterns](#patterns).
 | `DispatchGroupInterface` | interface | `{ prefix, add(), group() }`                                                                                                                                                                                                                                                                                                                                                      | Represents a prefix-scoped registration handle over a `DispatcherInterface` — the method-dimensioned counterpart of `GroupInterface`.                                                                                                                                                                                                                                                                                                                                                                  |
 | `NavigatorEventMap`      | type      | `{ readonly navigate: readonly [match: RouterMatch<Meta>]; }`                                                                                                                                                                                                                                                                                                                     | Represents the `Navigator`'s event map — the single `navigate` signal a consumer observes.                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `NavigatorOptions`       | interface | `{ routes, history?, base?, fallback?, guard?, intercept?, sensitive?, on?, error? }`                                                                                                                                                                                                                                                                                             | Represents the options for `createNavigator` — the `routes` to dispatch between, the navigation substrate, the optional guard hook, and the Emitter pattern's wiring.                                                                                                                                                                                                                                                                                                                                  |
-| `NavigatorInterface`     | interface | `{ router, emitter, active, start(), stop(), navigate(), match(), destroy() }`                                                                                                                                                                                                                                                                                                    | Represents the headless History/hash navigation entity contract (the behavioral-interface role for the one-class-per-file `Navigator`). Composes a core `Router<Meta>`, resolves the current location on `start()` and on every subsequent navigation event, tracks `active`, and emits `navigate` through the `EmitterInterface`.                                                                                                                                                                     |
+| `NavigatorInterface`     | interface | `{ router, emitter, active, start(), stop(), navigate(), destroy() }`                                                                                                                                                                                                                                                                                                             | Represents the headless History/hash navigation entity contract (the behavioral-interface role for the one-class-per-file `Navigator`). Composes a core `Router<Meta>`, resolves the current location on `start()` and on every subsequent navigation event, tracks `active`, and emits `navigate` through the `EmitterInterface`.                                                                                                                                                                     |
 | `RequestOptions`         | interface | `{ origin?, response? }`                                                                                                                                                                                                                                                                                                                                                          | Represents the options for `buildRequest` — URL origin and response-side disconnect tracking.                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `ListenerFunction`       | type      | `(request: IncomingMessage, response: ServerResponse) => void`                                                                                                                                                                                                                                                                                                                    | Represents a `node:http` request handler — the function `createListener` returns, matching `http.createServer`'s handler signature.                                                                                                                                                                                                                                                                                                                                                                    |
 | `StateFunction`          | type      | `(message: IncomingMessage) => TState`                                                                                                                                                                                                                                                                                                                                            | Derives a consumer's opaque per-request `TState` from the raw `IncomingMessage` — the `state` argument `createListener` threads into `dispatcher.handle`.                                                                                                                                                                                                                                                                                                                                              |
@@ -201,13 +201,12 @@ declaration it belongs to:
 The navigation entity's call-signature members, each documented on the interface
 declaration it belongs to:
 
-| Method     | Returns                    | Summary                                                                                                                      |
-| ---------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `start`    | `void`                     | Begins listening and resolves the current location — idempotent, so a second call is a no-op.                                |
-| `stop`     | `void`                     | Stops listening and aborts any pending guard — idempotent.                                                                   |
-| `navigate` | `void`                     | Navigates programmatically — sets `location.hash` in hash mode or calls `history.pushState` in history mode, then resolves.  |
-| `match`    | `RouterMatch \| undefined` | Looks one path up through the underlying `Router` — a pure lookup with no location read, no fallback, no guard, and no emit. |
-| `destroy`  | `void`                     | Stops listening and tears down the emitter.                                                                                  |
+| Method     | Returns | Summary                                                                                                                                        |
+| ---------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start`    | `void`  | Begins listening and resolves the current location — idempotent, so a second call is a no-op.                                                  |
+| `stop`     | `void`  | Stops listening and aborts any pending guard — idempotent.                                                                                     |
+| `navigate` | `void`  | Navigates programmatically — runs the guard, then pushes the entry (`#path` in hash mode, the `base`-joined path in history mode) and commits. |
+| `destroy`  | `void`  | Stops listening, aborts any pending guard, and tears down the emitter.                                                                         |
 
 #### `GroupInterface`
 
@@ -322,23 +321,43 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
 14. **The history toggle.** `history: false` (default) reads/writes
     `location.hash` and binds `hashchange`; `history: true` reads/writes through
     `pushState`/`popstate`, with an optional `base` path prefix stripped
-    before matching and prepended when navigating. `intercept: true`
-    (history mode only) adds same-origin `<a>` click interception — a plain
+    before matching and prepended when navigating. `base` is compared in the
+    encoded form `location.pathname` carries, so `base: '/café'` strips from
+    `/caf%C3%A9/users/7`. `intercept: true` (history mode only) adds
+    same-origin `<a>` click interception for a link inside `base` — a plain
     left-click with no modifier keys, no `target`, and no `download`
-    attribute.
-15. **Fallback semantics.** A location that matches nothing resolves the
-    configured `fallback` pattern (default: the first route's path) through
-    the same engine. A `fallback` that itself matches no registered route
-    leaves `active` `undefined` and emits nothing — no phantom match is ever
-    fabricated.
+    attribute. A link outside `base` navigates natively. `navigate` pushes an
+    entry in both modes, `#path` in hash mode, and writes `{ index }` into its
+    `history.state`; `start` writes `{ index: 0 }` to an entry that carries no
+    index. A hash `navigate` to the hash the location shows keeps its entry.
+15. **Fallback semantics.** A location that matches nothing, or in history
+    mode lies outside `base`, resolves the configured `fallback` pattern
+    (default: the first route's path) through the same engine. A `fallback`
+    that itself matches no registered route leaves `active` `undefined` and
+    emits nothing — no phantom match is ever fabricated.
 16. **Guard + supersede semantics.** An optional `guard(to, from, signal)` may
-    veto (or asynchronously veto) a navigation. The `Navigator` mints an
-    `@orkestrel/abort` handle per navigation and aborts the previous handle
-    when a newer navigation starts (or on `stop`/`destroy`) — a guard verdict
-    that resolves after its navigation was superseded (`signal.aborted`) is
-    discarded, same as a synchronous `false`/rejected verdict: `active` stays
-    unchanged and nothing is emitted. A guard throw routes to the `error`
-    handler (not through the emitter's own `emit`) and vetoes.
+    veto (or asynchronously veto) a navigation.
+    - `navigate` and an intercepted link ask the guard before the URL moves: a
+      veto leaves the location, the history length, and `active` unchanged,
+      and an allowed navigation pushes its entry, then commits.
+    - When the browser moves the URL first (`popstate` or `hashchange`), a veto
+      moves it back with `history.go` to the entry `active` describes, by the
+      `index` both entries carry. An entry the navigator did not write — a
+      native fragment link, an address-bar edit, or an entry from before
+      `start` — carries no index: the location stays where the browser put
+      it, `active` stays unchanged, and the consumer reconciles them.
+    - Each navigation holds an `@orkestrel/abort` handle until its verdict
+      arrives. A newer navigation, `stop`, and `destroy` abort every pending
+      handle, and a verdict that resolves after its abort (`signal.aborted`)
+      is discarded, same as a synchronous `false`/rejected verdict: `active`
+      stays unchanged and nothing is emitted. A guard throw routes to the
+      `error` handler (not through the emitter's own `emit`) and vetoes.
+    - A `navigate` called from a `navigate` listener runs in a microtask after
+      the emission ends, unless a later navigation supersedes it first. Every
+      listener of one emission reads `active` equal to the match it receives,
+      and the second navigation's emission follows.
+    - After `destroy`, `start` and `navigate` do nothing: no listener, no
+      history entry, and no emit.
 17. **Case-sensitive by default.** `sensitive: true` (forwarded to the
     underlying `Router`) is the default; `sensitive: false` folds case during
     matching.
@@ -530,8 +549,8 @@ dispatcher.destroy() // tears down the #emitter; router.entries() is still valid
 
 ### Hash-mode navigation
 
-A `Navigator` in hash mode dispatches on `location.hash` and updates `active` after
-each `hashchange`:
+A `Navigator` in hash mode dispatches on `location.hash`, updates `active` after each
+`hashchange`, and commits a `navigate` call as it pushes the hash:
 
 ```ts
 import { createNavigator } from '@orkestrel/router/browser'
@@ -544,8 +563,8 @@ const navigator = createNavigator({
 })
 navigator.emitter.on('navigate', (match) => (document.title = match.meta.title))
 navigator.start()
-navigator.match('/about')?.meta.title // 'About' — a pure lookup, no location read
-navigator.navigate('/about') // sets location.hash; `active` updates after the hashchange fires
+navigator.router.match('/about')?.meta.title // 'About' — a lookup, no location read
+navigator.navigate('/about') // pushes '#/about'; `active` updates before the call returns
 navigator.stop()
 navigator.destroy() // stop() plus tear down the #emitter
 ```
@@ -569,7 +588,14 @@ navigator.start() // binds popstate + same-origin <a> click interception
 ### Guarding navigation (auth walls)
 
 A guard may veto synchronously or asynchronously; a superseded guard's
-verdict is discarded through its own `signal`.
+verdict is discarded through its own `signal`. A `navigate` call or an intercepted
+link asks the guard before the URL moves, so a vetoed one leaves the address bar
+alone. When the browser moves first, through back, forward, a native fragment
+link, or an address-bar edit, a veto of an entry the navigator wrote moves the
+browser back to the entry `active` describes. For an entry it did not write, the
+address bar keeps the vetoed location while `active` keeps the previous match:
+compare `location` with `active` in your own `hashchange` or `popstate` listener
+and `navigate` to the location you want.
 
 ```ts
 import { createNavigator } from '@orkestrel/router/browser'
@@ -737,15 +763,18 @@ const server = http.createServer((incoming, response) => {
   assertions.
 - [`tests/src/browser/Navigator.test.ts`](../tests/src/browser/Navigator.test.ts) —
   hash and history modes, `navigate()`/`active`/`navigate` event, fallback
-  semantics, guard veto (sync + async, including supersede-discard), link
-  interception on/off, `start`/`stop`/`destroy` idempotence,
+  semantics, guard veto (sync + async, including supersede-discard), the guard
+  before the URL moves, the restore after a browser-initiated veto, a `navigate`
+  from a `navigate` listener, calls after `destroy`, link interception on/off and
+  outside `base`, `base` and hash text compared in one form,
+  `start`/`stop`/`destroy` idempotence,
   `NavigatorInterface` conformance, and the transcriptions of this guide's
   `@orkestrel/router/browser` fences.
 - [`tests/src/browser/factories.test.ts`](../tests/src/browser/factories.test.ts) —
   `createNavigator` returns a working `NavigatorInterface`.
 - [`tests/src/browser/helpers.test.ts`](../tests/src/browser/helpers.test.ts) —
   `computeNavigationKey`, `extractHashPath`, `resolveLocationPath` (hash + history, with/without
-  `base`), and `findAnchor` (including a click on a styled child inside an
+  `base`, a non-ASCII `base`, and `undefined` outside `base`), and `findAnchor` (including a click on a styled child inside an
   anchor).
 - [`tests/src/server/validators.test.ts`](../tests/src/server/validators.test.ts) —
   `isEncryptedSocket` on an encrypted socket, a plain record, and every

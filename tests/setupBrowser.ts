@@ -1,6 +1,6 @@
 import type { NavigatorInterface, NavigatorOptions } from '../src/browser/types.js'
 import type { createRecorder } from '@orkestrel/test'
-import { waitForDelay } from '@orkestrel/test'
+import { waitForDelay, waitForEvent } from '@orkestrel/test'
 import { createRouter } from '@src/core'
 import { createEmitter } from '@orkestrel/emitter'
 import { createNavigator } from '../src/browser/index.js'
@@ -55,6 +55,20 @@ export async function setHash(value: string): Promise<void> {
  */
 export function settleHistory(pathname = '/'): void {
 	window.history.replaceState(null, '', pathname)
+}
+
+/**
+ * Waits for the next `popstate` or `hashchange` the window dispatches, so a case reads what follows
+ * a traversal only after the browser has moved the location.
+ *
+ * @param type - The history event to wait for
+ * @returns The delivered event
+ */
+export function waitForHistory(type: 'popstate' | 'hashchange'): Promise<readonly [Event]> {
+	return waitForEvent<readonly [Event]>((listener) => {
+		window.addEventListener(type, listener, { once: true })
+		return () => window.removeEventListener(type, listener)
+	}, type)
 }
 
 /**
@@ -177,15 +191,73 @@ export function createStubNavigator(
 		start: () => {},
 		stop: () => {},
 		navigate: () => {},
-		match: () => undefined,
 		destroy: () => recorder.handler(id),
 	}
 }
 
+/** Describes one route a page scenario registers. */
+export interface PageRoute {
+	readonly path: string
+	readonly meta: PageMeta
+}
+
+/**
+ * Lists the routes the base rows register under `base: '/app'`: `/users` lies inside the base, and
+ * `/other/page` is the pattern a link to `/other/page` would hit if the navigator rewrote it under
+ * the base.
+ */
+export const BASE_ROUTES: readonly PageRoute[] = Object.freeze([
+	{ path: '/users', meta: { page: 'users' } },
+	{ path: '/other/page', meta: { page: 'other' } },
+])
+
+/** Lists the routes the guard, veto, re-entrancy, and teardown rows navigate between. */
+export const GUARD_ROUTES: readonly PageRoute[] = Object.freeze([
+	{ path: '/a', meta: { page: 'a' } },
+	{ path: '/b', meta: { page: 'b' } },
+	{ path: '/c', meta: { page: 'c' } },
+])
+
+/** Describes a base whose text the browser encodes in `location.pathname`. */
+export interface EncodedBase {
+	readonly base: string
+	readonly location: string
+	readonly pathname: string
+	readonly route: PageRoute
+	readonly params: Readonly<Record<string, string>>
+}
+
+/** Lists the non-ASCII bases the one-form rows strip from the encoded `location.pathname`. */
+export const ENCODED_BASES: readonly EncodedBase[] = Object.freeze([
+	{
+		base: '/café',
+		location: '/café/users/7',
+		pathname: '/caf%C3%A9/users/7',
+		route: { path: '/users/:id', meta: { page: 'user' } },
+		params: { id: '7' },
+	},
+	{
+		base: '/日本/',
+		location: '/日本/users/8',
+		pathname: '/%E6%97%A5%E6%9C%AC/users/8',
+		route: { path: '/users/:id', meta: { page: 'user' } },
+		params: { id: '8' },
+	},
+])
+
+/** Lists the hash paths the one-form rows navigate to while the hash already names them. */
+export const ENCODED_HASHES: readonly string[] = Object.freeze(['/w/{c}^', '/w/a b', '/w/`q`'])
+
+/** Lists the route a hash row registers, which captures the whole segment under `/w/`. */
+export const HASH_ROUTES: readonly PageRoute[] = Object.freeze([
+	{ path: '/home', meta: { page: 'home' } },
+	{ path: '/w/:name', meta: { page: 'word' } },
+])
+
 /** Creates, tracks, and starts a navigator for a page scenario. */
 export function startNavigator(
 	navigators: Array<NavigatorInterface<PageMeta>>,
-	routes: ReadonlyArray<{ readonly path: string; readonly meta: PageMeta }>,
+	routes: readonly PageRoute[],
 	options?: Omit<Partial<NavigatorOptions<PageMeta>>, 'routes'>,
 ): NavigatorInterface<PageMeta> {
 	const navigator = createNavigator<PageMeta>({ routes, ...options })

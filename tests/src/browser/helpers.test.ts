@@ -84,16 +84,42 @@ describe('resolveLocationPath — history mode', () => {
 		expect(resolveLocationPath({ hash: '', pathname: '/app' }, true, '/app')).toBe('/')
 	})
 
-	it('returns the pathname unchanged when it does not start with base', () => {
-		expect(resolveLocationPath({ hash: '', pathname: '/other/users' }, true, '/app')).toBe(
-			'/other/users',
+	it('returns undefined when the pathname lies outside base', () => {
+		expect(
+			resolveLocationPath({ hash: '', pathname: '/other/users' }, true, '/app'),
+		).toBeUndefined()
+	})
+
+	it('returns undefined for a base that only shares a string prefix, not a path segment', () => {
+		expect(
+			resolveLocationPath({ hash: '', pathname: '/apple/users' }, true, '/app'),
+		).toBeUndefined()
+	})
+
+	it('returns every pathname under the root base', () => {
+		expect(resolveLocationPath({ hash: '', pathname: '/users/7' }, true, '/')).toBe('/users/7')
+	})
+
+	it('strips a non-ASCII base from the encoded pathname', () => {
+		expect(resolveLocationPath({ hash: '', pathname: '/caf%C3%A9/users/7' }, true, '/café')).toBe(
+			'/users/7',
 		)
 	})
 
-	it('does not strip a base that only shares a string prefix, not a path segment', () => {
-		expect(resolveLocationPath({ hash: '', pathname: '/apple/users' }, true, '/app')).toBe(
-			'/apple/users',
-		)
+	it('maps the encoded bare pathname of a non-ASCII base to the root', () => {
+		expect(resolveLocationPath({ hash: '', pathname: '/caf%C3%A9' }, true, '/café/')).toBe('/')
+	})
+
+	it('strips a base given in its encoded form', () => {
+		expect(
+			resolveLocationPath({ hash: '', pathname: '/caf%C3%A9/users/7' }, true, '/caf%C3%A9'),
+		).toBe('/users/7')
+	})
+
+	it('keeps an encoded pathname outside a non-ASCII base outside it', () => {
+		expect(
+			resolveLocationPath({ hash: '', pathname: '/cafe/users/7' }, true, '/café'),
+		).toBeUndefined()
 	})
 })
 
