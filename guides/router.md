@@ -332,12 +332,14 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     through `buildURL`. An origin-form target is appended to the origin, so
     `GET //evil.example/admin` keeps the origin's authority and routes the
     pathname `//evil.example/admin`. An absolute-form target takes its own
-    authority, for `http:` and `https:` only, and the `Host` header is not
-    read. The asterisk form and every other form throw a `ContractError`. The
-    origin is `RequestOptions.origin` when given; otherwise it is the
-    connection's scheme and the `Host` header, which must pass `isAuthority`:
-    a host with an optional port, with no path, userinfo, whitespace, or port
-    above 65535. A consuming server maps the throw to 400.
+    authority, for `http:` and `https:` only. The asterisk form and every
+    other form throw a `ContractError`. The origin is `RequestOptions.origin`
+    when given; otherwise it is the connection's scheme and the `Host` header.
+    A `Host` header that is present must pass `isAuthority` for every target
+    form, with `RequestOptions.origin` set as well: a host with an optional
+    port, with no path, userinfo, whitespace, or port above 65535, on one
+    field line only (RFC 9112 section 3.2). A consuming server maps the throw
+    to 400.
 21. **The request signal aborts on a peer disconnect or on
     `RequestOptions.signal`, and on nothing else.** `buildRequest` mints an
     `@orkestrel/abort` handle linked to `RequestOptions.signal` and builds the
@@ -353,11 +355,15 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     remainder in place through `discardBody`, and so does the `finish` of the
     paired response, so the connection serves its next request.
 23. **A failed response reads as aborted.** `sendResponse` pipes a
-    non-`null` body to the `ServerResponse` through `stream.pipeline`, which
-    honors backpressure. When the peer closes first, it cancels the body, even
-    one waiting for its next chunk, and resolves. When Node refuses a header
-    or the body fails, it destroys the target and rejects, so the client reads
-    an aborted response, never a truncated one that looks complete.
+    non-`null` body to the `ServerResponse` through `Readable.fromWeb`, which
+    honors backpressure, and removes every listener it adds when the exchange
+    ends. A response to a `HEAD` request, and a 1xx, 204, or 304 response,
+    carries no body on the wire, so `sendResponse` cancels its body unread and
+    ends the target. When the peer closes first, it cancels
+    the body, even one waiting for its next chunk, and resolves. When Node
+    refuses a header or the body fails, it destroys the target and rejects, so
+    the client reads an aborted response, never a truncated one that looks
+    complete.
 24. **Header fidelity.** `buildRequest` copies every incoming header
     (multi-value headers comma-joined, except `set-cookie`, appended
     individually); `sendResponse` writes every outgoing header and re-derives

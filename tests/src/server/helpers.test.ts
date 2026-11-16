@@ -10,42 +10,53 @@ import {
 	collectResponse,
 	countResponseListeners,
 	createMessage,
+	HEAD_BODY_COUNT,
+	measureRetention,
+	receiveMessage,
 	ResponseSend,
+	RETENTION_BOUND,
+	RETENTION_CALLS,
 	startPausedResponse,
 	startServer,
 } from '../../setupServer.js'
 
 // The test mirror of `src/server/helpers.ts` — pins each conversion helper on its own:
-// `buildURL` on real unconnected messages, `readChunk` on a paused message body, and
+// `buildURL` on messages a real parser built, `readChunk` on a paused message body, and
 // `buildRequest` and `sendResponse` over REAL sockets (no mocks). The composed rows of the
 // adapter's contract live in the conformance matrix, `integration.test.ts`.
 
 describe('buildURL', () => {
-	it('appends an origin-form target to the Host authority, keeping a leading double slash', () => {
-		expect(buildURL(createMessage('/plain?x=1', { host: 'app.local' }, false)).href).toBe(
-			'http://app.local/plain?x=1',
+	it('appends an origin-form target to the Host authority, keeping a leading double slash', async () => {
+		const plain = await receiveMessage('GET /plain?x=1 HTTP/1.1\r\nHost: app.local\r\n\r\n')
+		const doubled = await receiveMessage(
+			'GET //evil.example/admin HTTP/1.1\r\nHost: app.local\r\n\r\n',
 		)
-		expect(buildURL(createMessage('//evil.example/admin', { host: 'app.local' }, false)).href).toBe(
-			'http://app.local//evil.example/admin',
-		)
+
+		expect(buildURL(plain).href).toBe('http://app.local/plain?x=1')
+		expect(buildURL(doubled).href).toBe('http://app.local//evil.example/admin')
 	})
 
 	it('derives https from an encrypted socket and localhost from an absent Host', () => {
-		expect(buildURL(createMessage('/x', {}, true)).href).toBe('https://localhost/x')
+		expect(buildURL(createMessage('/x', true)).href).toBe('https://localhost/x')
 	})
 
-	it('appends an origin-form target to the WHATWG origin of the origin option, ignoring Host', () => {
-		const message = createMessage('/health', { host: 'user@app.local' }, false)
+	it('appends an origin-form target to the WHATWG origin of the origin option over a valid Host', async () => {
+		const message = await receiveMessage('GET /health HTTP/1.1\r\nHost: app.local\r\n\r\n')
 
 		expect(buildURL(message, 'https://api.example.com/').href).toBe(
 			'https://api.example.com/health',
 		)
 	})
 
-	it('takes an http or https absolute-form target whole, without reading Host', () => {
-		const message = createMessage('HTTPS://Other.Example:8443/a?b=1', { host: 'a b' }, false)
+	it('takes an http or https absolute-form target whole, over a valid Host or none', async () => {
+		const hosted = await receiveMessage(
+			'GET HTTPS://Other.Example:8443/a?b=1 HTTP/1.1\r\nHost: app.local\r\n\r\n',
+		)
 
-		expect(buildURL(message).href).toBe('https://other.example:8443/a?b=1')
+		expect(buildURL(hosted).href).toBe('https://other.example:8443/a?b=1')
+		expect(buildURL(createMessage('http://other.example/a', false)).href).toBe(
+			'http://other.example/a',
+		)
 	})
 
 	it('refuses the asterisk form, another scheme, userinfo, an empty authority, and no target', () => {
@@ -57,11 +68,9 @@ describe('buildURL', () => {
 			'',
 		]
 		const errors = refused.map((target) =>
-			captureError(() => buildURL(createMessage(target, { host: 'app.local' }, false))),
+			captureError(() => buildURL(createMessage(target, false))),
 		)
-		const absent = captureError(() =>
-			buildURL(createMessage(undefined, { host: 'app.local' }, false)),
-		)
+		const absent = captureError(() => buildURL(createMessage(undefined, false)))
 
 		for (const error of [...errors, absent]) {
 			expect(error).toBeInstanceOf(ContractError)
@@ -69,22 +78,50 @@ describe('buildURL', () => {
 		}
 	})
 
-	it('refuses an origin-form target under a Host that is not a host with an optional port', () => {
-		const error = captureError(() =>
-			buildURL(createMessage('/x', { host: 'app.local/admin' }, false)),
+	it('refuses a Host that is not a host with an optional port, for every target form and beside the origin option', async () => {
+		const origin = await receiveMessage('GET /x HTTP/1.1\r\nHost: app.local/admin\r\n\r\n')
+		const absolute = await receiveMessage(
+			'GET http://other.example/x HTTP/1.1\r\nHost: app.local/admin\r\n\r\n',
 		)
+		const errors = [
+			captureError(() => buildURL(origin)),
+			captureError(() => buildURL(absolute)),
+			captureError(() => buildURL(origin, 'https://api.example.com')),
+		]
 
-		expect(error).toBeInstanceOf(ContractError)
-		expect(error).toMatchObject({
-			code: 'pattern',
-			context: { path: ['message', 'headers', 'host'], received: '"app.local/admin"' },
-		})
+		for (const error of errors) {
+			expect(error).toBeInstanceOf(ContractError)
+			expect(error).toMatchObject({
+				code: 'pattern',
+				context: { path: ['message', 'headers', 'host'], received: '"app.local/admin"' },
+			})
+		}
+	})
+
+	it('refuses two Host field lines, for every target form and beside the origin option', async () => {
+		const origin = await receiveMessage('GET /x HTTP/1.1\r\nHost: a.local\r\nHost: b.local\r\n\r\n')
+		const absolute = await receiveMessage(
+			'GET http://other.example/x HTTP/1.1\r\nHost: a.local\r\nHost: a.local\r\n\r\n',
+		)
+		const errors = [
+			captureError(() => buildURL(origin)),
+			captureError(() => buildURL(absolute)),
+			captureError(() => buildURL(origin, 'https://api.example.com')),
+		]
+
+		for (const error of errors) {
+			expect(error).toBeInstanceOf(ContractError)
+			expect(error).toMatchObject({
+				code: 'pattern',
+				context: { path: ['message', 'headers', 'host'], limit: 'one Host field line' },
+			})
+		}
 	})
 })
 
 describe('readChunk', () => {
 	it('returns a buffered chunk, then undefined after the message is complete and drained', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		message.push(Buffer.from('ab'))
 		const signal = new AbortController().signal
 
@@ -96,7 +133,7 @@ describe('readChunk', () => {
 	})
 
 	it('waits for a chunk that arrives after the call', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		const pending = readChunk(message, new AbortController().signal)
 		message.push(Buffer.from('later'))
 		const chunk = await pending
@@ -105,7 +142,7 @@ describe('readChunk', () => {
 	})
 
 	it('throws when the message closes before it completed, while waiting or before the call', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		const signal = new AbortController().signal
 		const pending = readChunk(message, signal)
 		message.destroy()
@@ -117,7 +154,7 @@ describe('readChunk', () => {
 	})
 
 	it('throws the abort reason when the signal aborts, while waiting or before the call', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		const controller = new AbortController()
 		const pending = readChunk(message, controller.signal)
 		controller.abort(new Error('discarded'))
@@ -129,7 +166,7 @@ describe('readChunk', () => {
 	})
 
 	it('refuses a message that carries a text encoding', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		message.setEncoding('utf8')
 		message.push(Buffer.from('ab'))
 
@@ -141,7 +178,7 @@ describe('readChunk', () => {
 
 describe('discardBody', () => {
 	it('ends a pending read and leaves the message flowing, so Node drains the rest', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		const discard = new AbortController()
 		const pending = readChunk(message, discard.signal)
 		discardBody(message, discard)
@@ -153,7 +190,7 @@ describe('discardBody', () => {
 	})
 
 	it('leaves the message paused when it resumes before the pending read ends (control)', async () => {
-		const message = createMessage('/upload', {}, false)
+		const message = createMessage('/upload', false)
 		const discard = new AbortController()
 		const pending = readChunk(message, discard.signal)
 		message.resume()
@@ -332,11 +369,26 @@ describe('buildRequest', () => {
 	})
 
 	it('throws before attaching any listener when the target is refused', () => {
-		const message = createMessage('*', { host: 'app.local' }, false)
+		const message = createMessage('*', false)
 
 		expect(() => buildRequest(message)).toThrow(ContractError)
 		expect(message.listenerCount('close')).toBe(0)
 	})
+
+	it('reads no retention without an option signal (instrument noise control)', async () => {
+		const none = await measureRetention(RETENTION_CALLS, false)
+
+		expect(Math.abs(none)).toBeLessThanOrEqual(RETENTION_BOUND)
+	}, 30000)
+
+	// Waits on the `@orkestrel/abort` pin: `createAbort({ signal })` links through
+	// `AbortSignal.any`, which Node 22 retains per call. Flip `it.fails` to `it` with the pin.
+	it.fails('frees what a run-lived option signal holds when each exchange ends (waits on the abort pin)', async () => {
+		const none = await measureRetention(RETENTION_CALLS, false)
+		const linked = await measureRetention(RETENTION_CALLS, true)
+
+		expect(linked - none).toBeLessThanOrEqual(RETENTION_BOUND)
+	}, 30000)
 })
 
 describe('sendResponse', () => {
@@ -524,5 +576,30 @@ describe('sendResponse', () => {
 		expect(send.failure).toBeInstanceOf(ContractError)
 		expect(send.failure).toMatchObject({ code: 'placement' })
 		expect(destroyed.calls).toEqual([[true]])
+	})
+
+	it('cancels the body of a 204 unread, ends the target, and resolves', async () => {
+		const send = new ResponseSend()
+		const source = createTestBody(new Uint8Array(1024).fill(99), HEAD_BODY_COUNT)
+		const server = await startServer((_request, response) => {
+			const bodied = Object.defineProperty(new Response(null, { status: 204 }), 'body', {
+				value: source.body,
+			})
+			void send.execute(bodied, response)
+		})
+		try {
+			const response = await fetch(server.url)
+			await send.done
+
+			expect(response.status).toBe(204)
+			expect(send.settled).toBe(true)
+			expect(source.pulls).toBeLessThanOrEqual(1)
+			await expect(source.body.getReader().read()).resolves.toEqual({
+				done: true,
+				value: undefined,
+			})
+		} finally {
+			await server.close()
+		}
 	})
 })

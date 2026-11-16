@@ -12,7 +12,8 @@ import type { ServerResponse } from 'node:http'
  *
  * @remarks
  * - `origin` — the scheme and authority an origin-form target is appended to
- *   (`https://api.example.com`). It overrides the `Host` header. Omitted ⇒ derived
+ *   (`https://api.example.com`). It replaces the `Host` header in the URL, and a
+ *   `Host` header that is present must still be valid. Omitted ⇒ derived
  *   from the connection: the socket's `encrypted` presence picks `https`/`http`,
  *   and the `Host` header supplies the authority (absent `Host` ⇒ `localhost`).
  * - `response` — the paired `node:http` response. When provided, closing its

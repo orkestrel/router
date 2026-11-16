@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { RequestOptions } from './types.js'
 import { once } from 'node:events'
 import { Readable } from 'node:stream'
-import { finished, pipeline } from 'node:stream/promises'
+import { finished } from 'node:stream/promises'
 import { ReadableStream as WebReadableStream } from 'node:stream/web'
 import { createAbort } from '@orkestrel/abort'
 import { ContractError, isArray, isError, preview } from '@orkestrel/contract'
@@ -18,21 +18,23 @@ import { isAuthority, isEncryptedSocket } from './validators.js'
  * Builds the URL of a `node:http` request from its request target, by the target's form.
  *
  * @remarks
+ * - A `Host` header is checked first, for every target form and whether or not
+ *   `origin` is given (RFC 9112 section 3.2): more than one `Host` field line, or a
+ *   value that fails {@link isAuthority}, is refused.
  * - An origin-form target (one that opens with `/`) is appended to the origin, so
  *   `//evil.example/admin` keeps the origin's authority and its pathname stays
  *   `//evil.example/admin`. The origin is the WHATWG origin of `origin` when given;
  *   otherwise `https` or `http` by {@link isEncryptedSocket}, then the `Host` header
  *   (absent `Host` ⇒ `localhost`).
- * - An absolute-form target takes its own authority, for `http:` and `https:` only,
- *   and the `Host` header is not read.
+ * - An absolute-form target takes its own authority, for `http:` and `https:` only.
  * - The asterisk form and every other form are refused.
  *
  * @param message - The raw `node:http` request
- * @param origin - The scheme and authority that override the `Host` header
+ * @param origin - The scheme and authority that replace the `Host` header in the URL
  * @returns The parsed request URL
- * @throws {@link ContractError} Thrown when the target is not origin-form or an `http:` or
- *   `https:` absolute-form target whose authority passes {@link isAuthority}, or when an
- *   origin-form target meets a `Host` header that fails {@link isAuthority}
+ * @throws {@link ContractError} Thrown when the message carries more than one `Host` field
+ *   line or a `Host` that fails {@link isAuthority}, or when the target is not origin-form
+ *   or an `http:` or `https:` absolute-form target whose authority passes {@link isAuthority}
  *
  * @example
  * ```ts
@@ -45,20 +47,36 @@ import { isAuthority, isEncryptedSocket } from './validators.js'
  * ```
  */
 export function buildURL(message: IncomingMessage, origin?: string): URL {
+	// A scan of the raw names, not `headersDistinct`, which rebuilds every header per request.
+	const lines = message.rawHeaders.filter(
+		(name, index) => index % 2 === 0 && name.length === 4 && name.toLowerCase() === 'host',
+	).length
+	if (lines > 1)
+		throw new ContractError('a request must carry at most one Host header', {
+			code: 'pattern',
+			context: {
+				path: ['message', 'headers', 'host'],
+				limit: 'one Host field line',
+				received: preview(lines),
+			},
+		})
+	const host = message.headers.host
+	if (host !== undefined && !isAuthority(host))
+		throw new ContractError('a Host header must be a host with an optional port', {
+			code: 'pattern',
+			context: {
+				path: ['message', 'headers', 'host'],
+				limit: 'uri-host [ ":" port ]',
+				received: preview(host),
+			},
+		})
 	const target = message.url ?? ''
 	if (target.startsWith('/')) {
 		if (origin !== undefined) return new URL(`${new URL(origin).origin}${target}`)
-		const host = message.headers.host ?? 'localhost'
-		if (!isAuthority(host))
-			throw new ContractError('a Host header must be a host with an optional port', {
-				code: 'pattern',
-				context: {
-					path: ['message', 'headers', 'host'],
-					limit: 'uri-host [ ":" port ]',
-					received: preview(host),
-				},
-			})
-		return new URL(`${isEncryptedSocket(message.socket) ? 'https' : 'http'}://${host}${target}`)
+		const authority = host ?? 'localhost'
+		return new URL(
+			`${isEncryptedSocket(message.socket) ? 'https' : 'http'}://${authority}${target}`,
+		)
 	}
 	const authority = /^https?:\/\/([^/?#]*)/i.exec(target)?.[1]
 	if (authority !== undefined && isAuthority(authority)) return new URL(target)
@@ -111,12 +129,11 @@ export async function readChunk(
 	if (message.complete) return undefined
 	if (message.destroyed)
 		throw new Error('request body closed before it completed', { cause: message.errored })
-	const wait = new AbortController()
-	const linked = AbortSignal.any([signal, wait.signal])
+	const wait = createAbort({ signal })
 	// Either outcome only ends the wait: the next call reads the abort, the close, or the chunk.
 	await Promise.race([
-		once(message, 'readable', { signal: linked }),
-		once(message, 'close', { signal: linked }),
+		once(message, 'readable', { signal: wait.signal }),
+		once(message, 'close', { signal: wait.signal }),
 	]).then(
 		() => wait.abort(),
 		() => wait.abort(),
@@ -247,8 +264,11 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  * Writes `status`/`statusText`, then every response header (`set-cookie`
  * written through {@link Headers.getSetCookie} so multiple cookies stay distinct
  * instead of collapsing into one comma-joined header), then pipes the body to
- * `target` through `stream.pipeline`, which honors backpressure and ends `target`
- * when the body completes. A `null` body ends `target` with no further writes.
+ * `target` through `Readable.fromWeb`, which honors backpressure and ends `target`
+ * when the body completes; every listener it adds to `target` is removed when the
+ * exchange ends. A `null` body ends `target` with no further writes. A
+ * response to a `HEAD` request, and a 1xx, 204, or 304 response, carries no body on
+ * the wire (RFC 9112 section 6.3), so its body is cancelled unread and `target` ends.
  * When the peer closes first, the body is cancelled, even while it waits for its
  * next chunk, and the promise resolves. When Node refuses a header or the body
  * fails, `target` is destroyed, so the client reads an aborted response rather
@@ -257,7 +277,7 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  * @param response - The fetch `Response` to write
  * @param target - The `node:http` response to write it to
  * @returns A promise that resolves when `target` finished or the peer closed
- * @throws Thrown when Node refuses a header, the body fails, or the body is no
+ * @throws Thrown when Node refuses a header, the body fails, or the body is no unlocked
  *   `ReadableStream` (a {@link ContractError}), after `target` is destroyed
  *
  * @example
@@ -271,8 +291,15 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  * ```
  */
 export async function sendResponse(response: Response, target: ServerResponse): Promise<void> {
+	const body = response.body
+	const status = response.status
+	const bodiless = target.req.method === 'HEAD' || status < 200 || status === 204 || status === 304
+	const source =
+		body instanceof WebReadableStream && !bodiless && !body.locked
+			? Readable.fromWeb(body)
+			: undefined
 	try {
-		target.statusCode = response.status
+		target.statusCode = status
 		target.statusMessage = response.statusText
 		for (const [name, value] of response.headers) {
 			if (name === 'set-cookie') continue
@@ -280,19 +307,37 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 		}
 		const cookies = response.headers.getSetCookie()
 		if (cookies.length > 0) target.setHeader('set-cookie', cookies)
-		const body = response.body
-		if (body === null) await finished(target.end())
-		else if (body instanceof WebReadableStream) await pipeline(Readable.fromWeb(body), target)
-		else
-			throw new ContractError('a response body must be a ReadableStream', {
+		if (body !== null && !(body instanceof WebReadableStream && (bodiless || source !== undefined)))
+			throw new ContractError('a response body must be an unlocked ReadableStream', {
 				code: 'placement',
-				context: { path: ['response', 'body'], limit: 'ReadableStream', received: preview(body) },
+				context: {
+					path: ['response', 'body'],
+					limit: 'unlocked ReadableStream',
+					received: preview(body),
+				},
 			})
+		if (body !== null && bodiless) await body.cancel()
+		if (source === undefined) await finished(target.end(), { cleanup: true })
+		else {
+			source.once('error', (error) => target.destroy(error))
+			source.pipe(target)
+			// One `finish` and one `close` wait, removed when either settles; `pipeline` and
+			// `finished` leave or double their listeners on a `ServerResponse`.
+			const wait = new AbortController()
+			await Promise.race([
+				once(target, 'finish', { signal: wait.signal }),
+				once(target, 'close', { signal: wait.signal }),
+			]).finally(() => wait.abort())
+			if (!target.writableFinished && source.errored !== null) throw source.errored
+			if (!target.writableFinished) source.destroy()
+		}
 	} catch (error) {
-		if (isError(error) && 'code' in error && error.code === 'ERR_STREAM_PREMATURE_CLOSE') return
+		const failure: unknown = source?.errored ?? error
+		source?.destroy()
+		if (isError(failure) && 'code' in failure && failure.code === 'ERR_STREAM_PREMATURE_CLOSE')
+			return
 		target.destroy()
-		const body = response.body
-		if (body instanceof WebReadableStream && !body.locked) await body.cancel(error)
-		throw error
+		if (body instanceof WebReadableStream && !body.locked) await body.cancel(failure)
+		throw failure
 	}
 }

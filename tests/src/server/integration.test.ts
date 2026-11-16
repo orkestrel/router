@@ -1,3 +1,4 @@
+import type { ListenerStep } from '../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import http from 'node:http'
 import { createRecorder, requireValue, waitForCondition, waitForDelay } from '@orkestrel/test'
@@ -6,8 +7,11 @@ import { createDispatcher } from '@src/core'
 import { buildRequest, sendResponse } from '@src/server'
 import {
 	abandonUpload,
+	answerBareHead,
+	answerHead,
 	answerRequest,
 	answerTarget,
+	answerWithServerListeners,
 	buildAnswers,
 	cancelPendingUpload,
 	cancelUpload,
@@ -17,9 +21,13 @@ import {
 	destroyResponse,
 	DISPATCH_CASES,
 	handleExchange,
+	HEAD_REQUESTS,
 	holdUpload,
 	HOST_CASES,
 	IdleBody,
+	LISTENER_BOUND,
+	LISTENER_EVENTS,
+	postSequentially,
 	readUpload,
 	refuseHeader,
 	REFUSED_HEADER,
@@ -27,11 +35,14 @@ import {
 	ROOT_REQUEST,
 	SECOND_REQUEST,
 	startServer,
+	subtractListeners,
 	TARGET_CASES,
+	traceUpload,
 	UPLOAD_CHUNK,
 	UPLOAD_COUNT,
 	UPLOAD_HEAD,
 	UPLOAD_SIZES,
+	WARNING_REQUESTS,
 } from '../../setupServer.js'
 
 // The HTTP conformance matrix of the node adapter: every row feeds the same bytes to a bare
@@ -40,7 +51,10 @@ import {
 
 for (const [title, rows] of [
 	['row S1: the target form decides the URL', TARGET_CASES],
-	['row 2: a malformed Host is refused, and the origin option overrides Host', HOST_CASES],
+	[
+		'row 2: a malformed or repeated Host is refused, and the origin option replaces Host in the URL',
+		HOST_CASES,
+	],
 ] as const) {
 	describe(`${title}`, () => {
 		for (const row of rows) {
@@ -310,6 +324,125 @@ describe('row S3: a failing body reads as aborted', () => {
 			await server.close()
 		}
 	})
+})
+
+describe('row L: the adapter holds a fixed few listeners per exchange and removes them when it ends', () => {
+	for (const [path, count] of [
+		['/full', UPLOAD_COUNT],
+		['/full', UPLOAD_COUNT * 4],
+		['/cancel', UPLOAD_COUNT],
+	] as const) {
+		it(`counts at most the bound at every step of a ${path} upload of ${count} chunks, and none after the response closed`, async () => {
+			const steps = createRecorder<[step: ListenerStep]>()
+			const server = await startServer((message, response) => {
+				void traceUpload(message, response, steps)
+			})
+			const client = await connectClient(server.port)
+			try {
+				client.write(
+					`POST ${path} HTTP/1.1\r\nHost: app.local\r\nContent-Length: ${UPLOAD_CHUNK.byteLength * count}\r\n\r\n`,
+				)
+				await client.upload(UPLOAD_CHUNK, count, 1)
+				await waitForCondition('the trace reaches the closed response', () => steps.count === 5, {
+					budget: 5000,
+				})
+				const [entry, ...rest] = steps.calls.map(([step]) => step)
+				const first = requireValue(entry, 'the entry step')
+				const shares = rest.map((step) => ({
+					step: step.step,
+					message: subtractListeners(step.message, first.message),
+					response: subtractListeners(step.response, first.response),
+				}))
+				const over = shares.flatMap((share) =>
+					LISTENER_EVENTS.flatMap((name) =>
+						[share.message, share.response].some((counts) => (counts[name] ?? 0) > LISTENER_BOUND)
+							? [`${share.step} ${name}`]
+							: [],
+					),
+				)
+				const closed = requireValue(shares.at(-1), 'the closed step')
+
+				expect(over).toEqual([])
+				expect(closed.step).toBe('closed')
+				expect(closed.response).toEqual({ close: 0, error: 0, end: 0, aborted: 0 })
+			} finally {
+				client.destroy()
+				await server.close()
+			}
+		}, 10000)
+	}
+
+	it('prints no MaxListenersExceededWarning over many keep-alive requests beside a server that adds two close listeners', async () => {
+		const warnings = createRecorder<[warning: Error]>()
+		process.on('warning', warnings.handler)
+		const server = await startServer((message, response) => {
+			void answerWithServerListeners(message, response)
+		})
+		try {
+			await postSequentially(server.url, WARNING_REQUESTS)
+			await waitForDelay(10)
+
+			expect(
+				warnings.calls
+					.map(([warning]) => warning.name)
+					.filter((name) => name === 'MaxListenersExceededWarning'),
+			).toEqual([])
+		} finally {
+			process.off('warning', warnings.handler)
+			await server.close()
+		}
+	}, 30000)
+})
+
+describe('row F5: a bodiless response cancels its body unread', () => {
+	it('drops the body Node writes to a bare HEAD response, and frames the next response (control)', async () => {
+		const server = await startServer(answerBareHead)
+		const client = await connectClient(server.port, ['HEAD', 'GET'])
+		try {
+			client.write(HEAD_REQUESTS)
+			const responses = await client.wait(2, 'the HEAD and the GET are answered')
+
+			expect(
+				responses.map((response) => [
+					response.status,
+					response.headers['content-length'],
+					response.body,
+				]),
+			).toEqual([
+				[200, '7', ''],
+				[200, '6', 'second'],
+			])
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
+
+	it('answers HEAD without pulling the body, so a timer set beside the send fires first', async () => {
+		const readings = createRecorder<[pulls: number]>()
+		const send = new ResponseSend()
+		const server = await startServer((message, response) => {
+			void answerHead(message, response, readings, send)
+		})
+		const client = await connectClient(server.port, ['HEAD', 'GET'])
+		try {
+			client.write(HEAD_REQUESTS)
+			const responses = await client.wait(2, 'the HEAD and the GET are answered', 5000)
+			await send.done
+			await waitForCondition('the timer fires', () => readings.count === 1)
+			const [pulls] = requireValue(readings.calls[0], 'the timer read the pulls')
+
+			expect(responses.map((response) => [response.status, response.body])).toEqual([
+				[200, ''],
+				[200, 'second'],
+			])
+			expect(pulls).toBeLessThanOrEqual(1)
+			expect(send.settled).toBe(true)
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	}, 10000)
 })
 
 describe('row S4: an idle body cancels on disconnect', () => {
