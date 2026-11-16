@@ -15,11 +15,9 @@ import {
 // The PURE path-matching primitives (self-describing helper naming — module scope,
 // no entity context). Every one is exported (the centralized-file rule): a
 // consumer composes them directly, or reaches them through the `Router` engine.
-// They speak ONLY `string` / `RegExp` / `Record`, `String.prototype.toWellFormed`,
-// `encodeURIComponent`, and `decodeURIComponent` (ECMAScript built-ins valid in Node and the
-// browser alike) — NO DOM, NO `node:*`, no host `URL` parser — so
-// the SAME engine drives a method-dimensioned server dispatcher and a method-less
-// browser navigator.
+// They use ECMAScript built-ins and `@orkestrel/contract` only, with no DOM, no `node:*`,
+// no host `URL` parser, and no `TextEncoder`, so the same engine drives a
+// method-dimensioned server dispatcher and a method-less browser navigator.
 
 /**
  * Canonicalizes a route path for registry identity — encodes it with `encodePath` and

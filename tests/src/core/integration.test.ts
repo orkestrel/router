@@ -331,8 +331,8 @@ describe('router path matrix — the declared path text', () => {
 
 describe('router path matrix — the encoder cost on untrusted text', () => {
 	// Property: a request full of path-set members costs a bounded multiple of a same-length
-	// plain request, with no per-code-point amplification, and grows no faster than it.
-	it('A1: costs a run of raw `^` a bounded multiple of a run of `a` through Dispatcher.handle, and grows as the run does', async () => {
+	// plain request, with no per-code-point amplification. The text-door row bounds its growth.
+	it('A1: costs a run of raw `^` a bounded multiple of a run of `a` through Dispatcher.handle', async () => {
 		// The precondition: the host URL leaves `^` raw, so the dispatched path reaches the encoder raw.
 		expect(new Request(`http://x/users/${'^'.repeat(3)}`).url).toBe('http://x/users/^^^')
 		const dispatcher = createDispatcher()
@@ -343,14 +343,10 @@ describe('router path matrix — the encoder cost on untrusted text', () => {
 				handler: () => new Response('ok'),
 			})),
 		)
-		const short = await measureDispatchCost(dispatcher, '^'.repeat(3000))
 		const caret = await measureDispatchCost(dispatcher, '^'.repeat(12000))
-		const letterShort = await measureDispatchCost(dispatcher, 'a'.repeat(3000))
 		const letter = await measureDispatchCost(dispatcher, 'a'.repeat(12000))
 		// Ten runs at load 1.3 read 7.41 to 9.85; twice 9.85 is 19.7, so 20; cf9eab1 read 62.73 to 121.22.
 		expect(caret / letter).toBeLessThan(20)
-		// Ten runs read this growth over twice the `a` run's at 0.57 to 0.73; the bound is 1.
-		expect(caret / short / ((2 * letter) / letterShort)).toBeLessThan(1)
 		dispatcher.destroy()
 	})
 
