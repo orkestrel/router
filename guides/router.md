@@ -63,6 +63,8 @@ Browser and server usage appear under [Patterns](#patterns).
 | `METHOD_LIST`         | const | `readonly ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]` | Lists the HTTP methods a `DispatcherInterface` registers routes under, in canonical order — a frozen literal tuple, and the single source the `Method` type, `HTTP_METHODS`, and `parseMethod` are all derived from. |
 | `HTTP_METHODS`        | const | `ReadonlySet<string>`                                                   | Holds every HTTP method a `DispatcherInterface` registers routes under as a `ReadonlySet` — backs the registration guard (`add` rejects any `method` outside this set).                                              |
 | `PATH_ENCODE_SET`     | const | `ReadonlySet<string>`                                                   | Holds the printable ASCII members of the path encode set `encodePath` reads: the URL Standard's path percent-encode set plus `\|`, beside every C0 control, U+007F, and greater code point.                          |
+| `PATH_ESCAPE_PATTERN` | const | `RegExp`                                                                | Matches each ASCII code point `encodePath` writes as one escape — a C0 control, a member of `PATH_ENCODE_SET`, or U+007F — in one global `replace` pass.                                                             |
+| `PATH_WIDE_PATTERN`   | const | `RegExp`                                                                | Matches each run of non-ASCII code points `encodePath` hands to one `encodeURIComponent` call, in one global `replace` pass.                                                                                         |
 | `PERCENT_ESCAPES`     | const | `readonly string[]`                                                     | Lists the uppercase percent-escape of every byte value, indexed by the byte, so `encodePath` writes each escape with one lookup.                                                                                     |
 | `PATH_ENCODE_PATTERN` | const | `RegExp`                                                                | Matches one code point `encodePath` writes as escapes: a C0 control, a member of `PATH_ENCODE_SET`, U+007F, or any greater code point.                                                                               |
 | `PATH_REFUSED_SET`    | const | `ReadonlySet<string>`                                                   | Holds the code points a route pattern must not hold: `\`, tab, line feed, and carriage return, which a URL parser reads as a separator or deletes, so the pattern would name a path other than its text.             |
@@ -763,6 +765,10 @@ const server = http.createServer((incoming, response) => {
   reaching a literal the path encoder changes,
   `NavigatorInterface` conformance, and the transcriptions of this guide's
   `@orkestrel/router/browser` fences.
+- [`tests/src/browser/integration.test.ts`](../tests/src/browser/integration.test.ts) —
+  the core path grammar on the Chromium host: the host row, and a `|` literal through
+  Chromium's URL parsing of `new URL` and `history.pushState`, handed to `new Request` and
+  the real dispatcher (no fetch, navigation, or socket runs there).
 - [`tests/src/browser/factories.test.ts`](../tests/src/browser/factories.test.ts) —
   `createNavigator` returns a working `NavigatorInterface`.
 - [`tests/src/browser/helpers.test.ts`](../tests/src/browser/helpers.test.ts) —

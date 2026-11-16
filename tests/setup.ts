@@ -1008,3 +1008,42 @@ export async function measureDispatchCost(
 	)
 	return samples.toSorted((a, b) => a - b)[3] ?? Number.NaN
 }
+
+/**
+ * Lists the text-door cost inputs: a label, the unit a run repeats — `^`, a lone surrogate, an
+ * astral code point, and a mix of ASCII members, plain letters, and non-ASCII text — and the
+ * bound on the run's cost growth from 500 to 2,000 repetitions.
+ *
+ * @remarks
+ * A linear encoder grows by about 4. Ten runs on 2026-11-16 at load average 1.3 read growth
+ * 3.35 to 3.91 for the single units and 4.02 to 5.64 for the mixed unit; each bound is twice
+ * that maximum, rounded up, for host load: 2 × 3.91 = 7.82, so 8, and 2 × 5.64 = 11.28, so 12.
+ */
+export const COST_UNITS: ReadonlyArray<readonly [label: string, unit: string, bound: number]> =
+	Object.freeze([
+		['caret', '^', 8],
+		['surrogate', '\uD800', 8],
+		['astral', '\u{1F600}', 8],
+		['mixed', 'a^é{b}|日', 12],
+	])
+
+/**
+ * Measures the median milliseconds one `Router.match` call spends on raw `/users/<text>`: seven
+ * samples, each the mean of five calls.
+ *
+ * @param router - The router to time
+ * @param text - The raw path text after `/users/`
+ * @returns The median per-call duration in milliseconds
+ */
+export function measureMatchCost(
+	router: { readonly match: (pathname: string) => unknown },
+	text: string,
+): number {
+	const pathname = `/users/${text}`
+	const samples = Array.from({ length: 7 }, () => {
+		const start = performance.now()
+		Array.from({ length: 5 }).forEach(() => router.match(pathname))
+		return (performance.now() - start) / 5
+	})
+	return samples.toSorted((a, b) => a - b)[3] ?? Number.NaN
+}

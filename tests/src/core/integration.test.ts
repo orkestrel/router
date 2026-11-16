@@ -19,12 +19,14 @@ import {
 	buildTextRequests,
 	CASE_ROWS,
 	COST_PATHS,
+	COST_UNITS,
 	createMatrixHandler,
 	describeRefusedPoints,
 	dispatchReference,
 	encodeReferencePath,
 	filterDistinctPaths,
 	measureDispatchCost,
+	measureMatchCost,
 	orderRoutes,
 	parseReference,
 	readMatrixOutcome,
@@ -328,7 +330,11 @@ describe('router path matrix — the declared path text', () => {
 })
 
 describe('router path matrix — the encoder cost on untrusted text', () => {
-	it('A1: costs a run of `^` within its canonical length of a run of `a`, and grows as the run does', async () => {
+	// Property: a request full of path-set members costs a bounded multiple of a same-length
+	// plain request, with no per-code-point amplification, and grows no faster than it.
+	it('A1: costs a run of raw `^` a bounded multiple of a run of `a` through Dispatcher.handle, and grows as the run does', async () => {
+		// The precondition: the host URL leaves `^` raw, so the dispatched path reaches the encoder raw.
+		expect(new Request(`http://x/users/${'^'.repeat(3)}`).url).toBe('http://x/users/^^^')
 		const dispatcher = createDispatcher()
 		dispatcher.add(
 			COST_PATHS.map((path) => ({
@@ -341,12 +347,24 @@ describe('router path matrix — the encoder cost on untrusted text', () => {
 		const caret = await measureDispatchCost(dispatcher, '^'.repeat(12000))
 		const letterShort = await measureDispatchCost(dispatcher, 'a'.repeat(3000))
 		const letter = await measureDispatchCost(dispatcher, 'a'.repeat(12000))
-		const again = await measureDispatchCost(dispatcher, 'a'.repeat(12000))
-		const noise = Math.max(letter, again) / Math.min(letter, again)
-		// Three canonical characters per `^`, each at most five `a`-run steps (scan, match, lookup, write).
-		expect(caret / letter).toBeLessThan(3 * 5 * noise)
-		expect(caret / short).toBeLessThan((2 * letter) / letterShort)
+		// Ten runs at load 1.3 read 7.41 to 9.85; twice 9.85 is 19.7, so 20; cf9eab1 read 62.73 to 121.22.
+		expect(caret / letter).toBeLessThan(20)
+		// Ten runs read this growth over twice the `a` run's at 0.57 to 0.73; the bound is 1.
+		expect(caret / short / ((2 * letter) / letterShort)).toBeLessThan(1)
 		dispatcher.destroy()
+	})
+
+	// Property: through the text door, encoding grows linearly in the run for ASCII members, lone
+	// surrogates, astral code points, and a mix, with no superlinear term in either branch.
+	it('A1: grows a raw run through Router.match by a bounded factor from 500 to 2,000 repetitions', () => {
+		const router = createRouter<string>()
+		router.add(COST_PATHS.map((path) => ({ path, meta: path })))
+		const drift = COST_UNITS.flatMap(([label, unit, bound]) => {
+			const growth =
+				measureMatchCost(router, unit.repeat(2000)) / measureMatchCost(router, unit.repeat(500))
+			return growth < bound ? [] : [{ label, growth, bound }]
+		})
+		expect(drift).toEqual([])
 	})
 })
 
@@ -362,18 +380,22 @@ describe('router path matrix — a `|` literal on Node', () => {
 					response.end()
 				})
 		})
-		server.listen(0, '127.0.0.1')
-		await waitFor(server, 'listening')
-		const address = server.address()
-		const port = typeof address === 'object' && address !== null ? address.port : 0
-		const fetched = await fetch(`http://127.0.0.1:${port}/a|b`)
-		const socket = connect(port, '127.0.0.1')
-		await waitFor(socket, 'connect')
-		socket.end('GET /a|b HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n')
-		const raw = (await collect<Buffer>(socket)).map((chunk) => chunk.toString('latin1')).join('')
-		server.close()
-		await waitFor(server, 'close')
-		expect([fetched.status, raw.split('\r\n')[0]]).toEqual([200, 'HTTP/1.1 200 OK'])
+		try {
+			server.listen(0, '127.0.0.1')
+			await waitFor(server, 'listening')
+			const address = server.address()
+			const port = typeof address === 'object' && address !== null ? address.port : 0
+			const fetched = await fetch(`http://127.0.0.1:${port}/a|b`)
+			const socket = connect(port, '127.0.0.1')
+			await waitFor(socket, 'connect')
+			socket.end('GET /a|b HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n')
+			const raw = (await collect<Buffer>(socket)).map((chunk) => chunk.toString('latin1')).join('')
+			expect([fetched.status, raw.split('\r\n')[0]]).toEqual([200, 'HTTP/1.1 200 OK'])
+		} finally {
+			server.closeAllConnections()
+			server.close()
+			dispatcher.destroy()
+		}
 	})
 })
 

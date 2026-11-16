@@ -2,8 +2,9 @@ import type { CompiledPath, Method, RouteEntry, RouteInput, SegmentRank } from '
 import { ContractError, escapeRegExp, isArray, preview } from '@orkestrel/contract'
 import {
 	PATH_ENCODE_PATTERN,
-	PATH_ENCODE_SET,
+	PATH_ESCAPE_PATTERN,
 	PATH_REFUSED_SET,
+	PATH_WIDE_PATTERN,
 	PERCENT_ESCAPES,
 	PROTOTYPE_KEYS,
 	TIER_LITERAL,
@@ -14,8 +15,9 @@ import {
 // The PURE path-matching primitives (self-describing helper naming — module scope,
 // no entity context). Every one is exported (the centralized-file rule): a
 // consumer composes them directly, or reaches them through the `Router` engine.
-// They speak ONLY `string` / `RegExp` / `Record`, `TextEncoder`, and `decodeURIComponent`
-// (platform globals valid in Node and the browser alike) — NO DOM, NO `node:*` — so
+// They speak ONLY `string` / `RegExp` / `Record`, `String.prototype.toWellFormed`,
+// `encodeURIComponent`, and `decodeURIComponent` (ECMAScript built-ins valid in Node and the
+// browser alike) — NO DOM, NO `node:*`, no host `URL` parser — so
 // the SAME engine drives a method-dimensioned server dispatcher and a method-less
 // browser navigator.
 
@@ -247,13 +249,9 @@ export function encodePath(text: string): string {
 	if (!PATH_ENCODE_PATTERN.test(text)) return text
 	// One global pass per class: an ASCII member is one table lookup, and a non-ASCII run is
 	// one `encodeURIComponent` call over its well-formed text (a lone surrogate becomes U+FFFD).
-	const members = escapeRegExp([...PATH_ENCODE_SET].join(''))
 	return text
-		.replace(
-			new RegExp(`[\\0-\\x1F\\x7F${members}]`, 'g'),
-			(char) => PERCENT_ESCAPES[char.charCodeAt(0)] ?? '',
-		)
-		.replace(/[^\0-\x7F]+/gu, (run) => encodeURIComponent(run.toWellFormed()))
+		.replace(PATH_ESCAPE_PATTERN, (char) => PERCENT_ESCAPES[char.charCodeAt(0)] ?? '')
+		.replace(PATH_WIDE_PATTERN, (run) => encodeURIComponent(run.toWellFormed()))
 }
 
 /**

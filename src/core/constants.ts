@@ -118,6 +118,40 @@ export const PATH_ENCODE_PATTERN: RegExp = Object.freeze(
 )
 
 /**
+ * Matches each ASCII code point `encodePath` writes as one escape — a C0 control, a member of
+ * {@link PATH_ENCODE_SET}, or U+007F — in one global `replace` pass.
+ *
+ * @remarks
+ * Built once from {@link PATH_ENCODE_SET} when the module loads. It carries the `g` flag, so
+ * `replace` writes its `lastIndex`; it is left unfrozen for that write, and `replace` sets
+ * `lastIndex` to 0 before and after each pass, so no state passes between calls.
+ *
+ * @example
+ * ```ts
+ * '/a^b|c'.replace(PATH_ESCAPE_PATTERN, '*') // '/a*b*c'
+ * ```
+ */
+export const PATH_ESCAPE_PATTERN: RegExp = new RegExp(
+	`[\\0-\\x1F\\x7F${escapeRegExp([...PATH_ENCODE_SET].join(''))}]`,
+	'g',
+)
+
+/**
+ * Matches each run of non-ASCII code points `encodePath` hands to one `encodeURIComponent`
+ * call, in one global `replace` pass.
+ *
+ * @remarks
+ * A `u`-flag class, so a lone surrogate matches as one code point inside a run. It carries the
+ * `g` flag and is left unfrozen for the same reason as {@link PATH_ESCAPE_PATTERN}.
+ *
+ * @example
+ * ```ts
+ * 'a日本b'.replace(PATH_WIDE_PATTERN, '*') // 'a*b'
+ * ```
+ */
+export const PATH_WIDE_PATTERN: RegExp = /[^\0-\x7F]+/gu
+
+/**
  * Holds the code points a route pattern must not hold: `\`, tab, line feed, and carriage
  * return, which a URL parser reads as a separator or deletes, so the pattern would name a
  * path other than its text.
