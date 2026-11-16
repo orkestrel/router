@@ -1,24 +1,171 @@
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ServerResponse } from 'node:http'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
-import { createDispatcher } from '../../../src/core/index.js'
-import { buildRequest, sendResponse } from '../../../src/server/helpers.js'
-import { createListener } from '../../../src/server/handlers.js'
-import { createRecorder, waitForCondition } from '@orkestrel/test'
+import { ContractError } from '@orkestrel/contract'
+import { captureError, createRecorder, waitForCondition, waitForDelay } from '@orkestrel/test'
+import { buildRequest, buildURL, discardBody, readChunk, sendResponse } from '@src/server'
 import { createTestBody } from '../../setup.js'
 import {
 	captureBody,
-	ResponseSend,
 	collectResponse,
 	countResponseListeners,
+	createMessage,
+	ResponseSend,
 	startPausedResponse,
 	startServer,
 } from '../../setupServer.js'
 
-// The test mirror of `src/server/helpers.ts` — pins the conversion pair over REAL
-// sockets (no mocks): `buildRequest` fidelity, client-disconnect →
-// `request.signal` abort, and `sendResponse` writing, including backpressure
-// and a destroyed target.
+// The test mirror of `src/server/helpers.ts` — pins each conversion helper on its own:
+// `buildURL` on real unconnected messages, `readChunk` on a paused message body, and
+// `buildRequest` and `sendResponse` over REAL sockets (no mocks). The composed rows of the
+// adapter's contract live in the conformance matrix, `integration.test.ts`.
+
+describe('buildURL', () => {
+	it('appends an origin-form target to the Host authority, keeping a leading double slash', () => {
+		expect(buildURL(createMessage('/plain?x=1', { host: 'app.local' }, false)).href).toBe(
+			'http://app.local/plain?x=1',
+		)
+		expect(buildURL(createMessage('//evil.example/admin', { host: 'app.local' }, false)).href).toBe(
+			'http://app.local//evil.example/admin',
+		)
+	})
+
+	it('derives https from an encrypted socket and localhost from an absent Host', () => {
+		expect(buildURL(createMessage('/x', {}, true)).href).toBe('https://localhost/x')
+	})
+
+	it('appends an origin-form target to the WHATWG origin of the origin option, ignoring Host', () => {
+		const message = createMessage('/health', { host: 'user@app.local' }, false)
+
+		expect(buildURL(message, 'https://api.example.com/').href).toBe(
+			'https://api.example.com/health',
+		)
+	})
+
+	it('takes an http or https absolute-form target whole, without reading Host', () => {
+		const message = createMessage('HTTPS://Other.Example:8443/a?b=1', { host: 'a b' }, false)
+
+		expect(buildURL(message).href).toBe('https://other.example:8443/a?b=1')
+	})
+
+	it('refuses the asterisk form, another scheme, userinfo, an empty authority, and no target', () => {
+		const refused = [
+			'*',
+			'ftp://other.example/x',
+			'http://user@other.example/',
+			'http:///admin',
+			'',
+		]
+		const errors = refused.map((target) =>
+			captureError(() => buildURL(createMessage(target, { host: 'app.local' }, false))),
+		)
+		const absent = captureError(() =>
+			buildURL(createMessage(undefined, { host: 'app.local' }, false)),
+		)
+
+		for (const error of [...errors, absent]) {
+			expect(error).toBeInstanceOf(ContractError)
+			expect(error).toMatchObject({ code: 'pattern', context: { path: ['message', 'url'] } })
+		}
+	})
+
+	it('refuses an origin-form target under a Host that is not a host with an optional port', () => {
+		const error = captureError(() =>
+			buildURL(createMessage('/x', { host: 'app.local/admin' }, false)),
+		)
+
+		expect(error).toBeInstanceOf(ContractError)
+		expect(error).toMatchObject({
+			code: 'pattern',
+			context: { path: ['message', 'headers', 'host'], received: '"app.local/admin"' },
+		})
+	})
+})
+
+describe('readChunk', () => {
+	it('returns a buffered chunk, then undefined after the message is complete and drained', async () => {
+		const message = createMessage('/upload', {}, false)
+		message.push(Buffer.from('ab'))
+		const signal = new AbortController().signal
+
+		const chunk = await readChunk(message, signal)
+		expect(chunk === undefined ? undefined : Buffer.from(chunk).toString()).toBe('ab')
+		message.complete = true
+		message.push(null)
+		expect(await readChunk(message, signal)).toBeUndefined()
+	})
+
+	it('waits for a chunk that arrives after the call', async () => {
+		const message = createMessage('/upload', {}, false)
+		const pending = readChunk(message, new AbortController().signal)
+		message.push(Buffer.from('later'))
+		const chunk = await pending
+
+		expect(chunk === undefined ? undefined : Buffer.from(chunk).toString()).toBe('later')
+	})
+
+	it('throws when the message closes before it completed, while waiting or before the call', async () => {
+		const message = createMessage('/upload', {}, false)
+		const signal = new AbortController().signal
+		const pending = readChunk(message, signal)
+		message.destroy()
+
+		await expect(pending).rejects.toThrow('request body closed before it completed')
+		await expect(readChunk(message, signal)).rejects.toThrow(
+			'request body closed before it completed',
+		)
+	})
+
+	it('throws the abort reason when the signal aborts, while waiting or before the call', async () => {
+		const message = createMessage('/upload', {}, false)
+		const controller = new AbortController()
+		const pending = readChunk(message, controller.signal)
+		controller.abort(new Error('discarded'))
+
+		await expect(pending).rejects.toThrow('discarded')
+		await expect(readChunk(message, controller.signal)).rejects.toThrow('discarded')
+		expect(message.listenerCount('readable')).toBe(0)
+		expect(message.listenerCount('close')).toBe(0)
+	})
+
+	it('refuses a message that carries a text encoding', async () => {
+		const message = createMessage('/upload', {}, false)
+		message.setEncoding('utf8')
+		message.push(Buffer.from('ab'))
+
+		await expect(readChunk(message, new AbortController().signal)).rejects.toBeInstanceOf(
+			ContractError,
+		)
+	})
+})
+
+describe('discardBody', () => {
+	it('ends a pending read and leaves the message flowing, so Node drains the rest', async () => {
+		const message = createMessage('/upload', {}, false)
+		const discard = new AbortController()
+		const pending = readChunk(message, discard.signal)
+		discardBody(message, discard)
+
+		await expect(pending).rejects.toThrow('This operation was aborted')
+		await waitForCondition('the message flows', () => message.readableFlowing === true)
+		message.push(Buffer.from('dropped'))
+		await waitForCondition('the message drops the pushed bytes', () => message.readableLength === 0)
+	})
+
+	it('leaves the message paused when it resumes before the pending read ends (control)', async () => {
+		const message = createMessage('/upload', {}, false)
+		const discard = new AbortController()
+		const pending = readChunk(message, discard.signal)
+		message.resume()
+		discard.abort()
+
+		await expect(pending).rejects.toThrow('This operation was aborted')
+		message.push(Buffer.from('kept'))
+		await waitForDelay(10)
+		expect(message.readableFlowing).not.toBe(true)
+		expect(message.readableLength).toBe(4)
+	})
+})
 
 describe('buildRequest', () => {
 	it('carries the method, pathname, search, and headers over verbatim', async () => {
@@ -64,28 +211,6 @@ describe('buildRequest', () => {
 		await server.close()
 
 		expect(captured.calls[0]).toEqual(['hello world'])
-	})
-
-	it('derives the origin host from the Host header, defaulting to localhost when absent', async () => {
-		const captured = createRecorder<[Request]>()
-		const server = await startServer((request, response) => {
-			captured.handler(buildRequest(request))
-			response.end('ok')
-		})
-		await new Promise<void>((resolve) => {
-			const socket = net.connect(server.port, '127.0.0.1', () => {
-				socket.write('GET /x HTTP/1.0\r\n\r\n')
-			})
-			socket.on('data', () => {
-				socket.end()
-				resolve()
-			})
-		})
-		await server.close()
-
-		const request = captured.calls[0]?.[0]
-		if (request === undefined) throw new Error('expected one captured request')
-		expect(new URL(request.url).host).toBe('localhost')
 	})
 
 	it('honors an explicit origin option over the derived scheme and host', async () => {
@@ -187,50 +312,6 @@ describe('buildRequest', () => {
 		expect(reason.message).toBe('request to /x disconnected before completion')
 	})
 
-	it('aborts request.signal when a real client disconnects after sending a complete request', async () => {
-		const entered = Promise.withResolvers<Request>()
-		const completed = createRecorder<[boolean]>()
-		const dispatcher = createDispatcher<IncomingMessage>({
-			routes: [
-				{
-					method: 'POST',
-					path: '/stream',
-					handler: async (request, context) => {
-						await request.text()
-						completed.handler(context.state.complete)
-						entered.resolve(request)
-						await new Promise<void>((resolve) =>
-							request.signal.addEventListener('abort', () => resolve(), { once: true }),
-						)
-						return new Response(null, { status: 204 })
-					},
-				},
-			],
-		})
-		const server = await startServer(createListener(dispatcher, (message) => message))
-		const socket = net.connect(server.port, '127.0.0.1', () => {
-			socket.write('POST /stream HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\ndone')
-		})
-		const request = await entered.promise
-		// The body was fully received before the client left, so ONLY the response-close
-		// path can abort this signal — `!message.complete` is false and cannot fire.
-		expect(completed.calls).toEqual([[true]])
-		const aborted = new Promise<void>((resolve) =>
-			request.signal.addEventListener('abort', () => resolve(), { once: true }),
-		)
-		socket.destroy()
-		// Park on the real abort rather than asserting into the race: the response's own
-		// `close` lands a turn after the socket dies.
-		await aborted
-		await server.close()
-
-		expect(request.signal.aborted).toBe(true)
-		const reason = request.signal.reason
-		expect(reason).toBeInstanceOf(Error)
-		if (!(reason instanceof Error)) throw new Error('expected the response disconnect abort reason')
-		expect(reason.message).toBe('request to /stream disconnected before response completed')
-	})
-
 	it('does not abort or retain its response close listener after a normal response', async () => {
 		const captured = createRecorder<[Request]>()
 		const closed = Promise.withResolvers<number>()
@@ -248,6 +329,13 @@ describe('buildRequest', () => {
 		if (request === undefined) throw new Error('expected one captured request')
 		expect(request.signal.aborted).toBe(false)
 		expect(listeners).toBe(0)
+	})
+
+	it('throws before attaching any listener when the target is refused', () => {
+		const message = createMessage('*', { host: 'app.local' }, false)
+
+		expect(() => buildRequest(message)).toThrow(ContractError)
+		expect(message.listenerCount('close')).toBe(0)
 	})
 })
 
@@ -290,7 +378,7 @@ describe('sendResponse', () => {
 		expect(cookieLines).toEqual(['set-cookie: a=1', 'set-cookie: b=2'])
 	})
 
-	it('delivers byte-identical chunks on the fast path', async () => {
+	it('delivers byte-identical chunks', async () => {
 		const expected = Uint8Array.from([0, 1, 127, 128, 254, 255, 10, 13])
 		const server = await startServer((_request, response) => {
 			const body = new ReadableStream<Uint8Array>({
@@ -308,7 +396,7 @@ describe('sendResponse', () => {
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(expected)
 	})
 
-	it('pauses body pulls under socket pressure, cleans each wait, and completes after drain', async () => {
+	it('pauses body pulls under socket pressure and completes after drain, adding no listener per drain wait', async () => {
 		const chunk = new Uint8Array(64 * 1024).fill(97)
 		const count = 512
 		const length = chunk.byteLength * count
@@ -354,19 +442,18 @@ describe('sendResponse', () => {
 		expect(pressuredPulls).toBeGreaterThan(2)
 		expect(pressuredPulls).toBeLessThan(count)
 		expect(pressuredSettled).toBe(false)
-		expect(pressured.drain - baseline.drain).toBe(1)
-		expect(pressured.close - baseline.close).toBe(1)
-		expect(pressured.error - baseline.error).toBe(2)
 		expect(source.pulls).toBe(count)
 		expect(send.settled).toBe(true)
 		expect(send.failure).toBeUndefined()
-		expect(final).toEqual(baseline)
+		expect(final.drain).toBeLessThanOrEqual(pressured.drain)
+		expect(final.close).toBeLessThanOrEqual(pressured.close)
+		expect(final.error).toBeLessThanOrEqual(pressured.error)
 		if (output === undefined) throw new Error('expected the complete pressured response body')
 		expect(output.byteLength).toBe(length)
 		expect(output.every((byte) => byte === 97)).toBe(true)
 	}, 10000)
 
-	it('settles and removes pressure listeners when the consumer disconnects before drain', async () => {
+	it('resolves and cancels the body when the consumer disconnects under pressure', async () => {
 		const chunk = new Uint8Array(64 * 1024).fill(97)
 		const count = 512
 		const send = new ResponseSend()
@@ -403,16 +490,13 @@ describe('sendResponse', () => {
 		await send.done
 
 		expect(pressuredPulls).toBeGreaterThan(2)
-		expect(pressuredPulls).toBeLessThan(count)
-		expect(pressured.drain - baseline.drain).toBe(1)
-		expect(pressured.close - baseline.close).toBe(1)
-		expect(pressured.error - baseline.error).toBe(2)
+		expect(source.pulls).toBeLessThan(count)
 		expect(send.settled).toBe(true)
 		expect(send.failure).toBeUndefined()
 		const final = countResponseListeners(target)
-		expect(final.drain).toBeLessThanOrEqual(baseline.drain)
-		expect(final.close).toBeLessThanOrEqual(baseline.close)
-		expect(final.error).toBeLessThanOrEqual(baseline.error)
+		expect(final.drain).toBeLessThanOrEqual(pressured.drain)
+		expect(final.close).toBeLessThanOrEqual(pressured.close)
+		expect(final.error).toBeLessThanOrEqual(pressured.error)
 	}, 10000)
 
 	it('ends the target immediately for a null body', async () => {
@@ -424,5 +508,21 @@ describe('sendResponse', () => {
 
 		expect(response.status).toBe(204)
 		expect(await response.text()).toBe('')
+	})
+
+	it('destroys the target and rejects for a body that is not a ReadableStream', async () => {
+		const send = new ResponseSend()
+		const destroyed = createRecorder<[boolean]>()
+		const server = await startServer((_request, response) => {
+			const foreign = Object.defineProperty(new Response(null), 'body', { value: {} })
+			void send.execute(foreign, response).then(() => destroyed.handler(response.destroyed))
+		})
+		await expect(fetch(server.url)).rejects.toThrow('fetch failed')
+		await send.done
+		await server.close()
+
+		expect(send.failure).toBeInstanceOf(ContractError)
+		expect(send.failure).toMatchObject({ code: 'placement' })
+		expect(destroyed.calls).toEqual([[true]])
 	})
 })

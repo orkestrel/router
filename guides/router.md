@@ -86,6 +86,9 @@ Browser and server usage appear under [Patterns](#patterns).
 | `findAnchor`           | function | `(event: Event) => HTMLAnchorElement \| undefined`                                                             | Finds the nearest enclosing `<a>` element a DOM event originated from, by walking its composed path — the pure lookup behind history-mode link interception.                                                                                                                                                                   |
 | `buildRequest`         | function | `(message: IncomingMessage, options?: RequestOptions) => Request`                                              | Builds a fetch-standard `Request` from a `node:http` `IncomingMessage` — the server-adapter half of the fetch/node conversion seam.                                                                                                                                                                                            |
 | `sendResponse`         | function | `(response: Response, target: ServerResponse) => Promise<void>`                                                | Writes a fetch-standard `Response` back to a `node:http` `ServerResponse` — the reverse half of the fetch/node conversion seam.                                                                                                                                                                                                |
+| `buildURL`             | function | `(message: IncomingMessage, origin?: string) => URL`                                                           | Builds the URL of a `node:http` request from its request target, by the target's form.                                                                                                                                                                                                                                         |
+| `readChunk`            | function | `(message: IncomingMessage, signal: AbortSignal) => Promise<Uint8Array \| undefined>`                          | Reads the next chunk of a `node:http` request body, waiting for one to arrive.                                                                                                                                                                                                                                                 |
+| `discardBody`          | function | `(message: IncomingMessage, discard: AbortController) => void`                                                 | Discards the unread rest of a `node:http` request body in place, leaving the connection reusable.                                                                                                                                                                                                                              |
 
 ### Parsers
 
@@ -98,13 +101,7 @@ Browser and server usage appear under [Patterns](#patterns).
 | Name                | Kind     | Signature                                                      | Summary                                                                                                                                                                    |
 | ------------------- | -------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isEncryptedSocket` | function | `(socket: unknown) => socket is { readonly encrypted: true; }` | Determines whether a `node:http` connection socket is TLS-encrypted — the total, never-throwing narrow `buildRequest` uses to pick the derived scheme (`https` vs `http`). |
-
-### Handlers
-
-| Name                    | Kind     | Signature                                                                                                                                              | Summary                                                                                                                                                                                                                                                                           |
-| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `handleListenerRequest` | function | `<TState>(dispatcher: DispatcherInterface<TState>, state: StateFunction<TState>, request: IncomingMessage, response: ServerResponse) => Promise<void>` | Handles one `node:http` request through a core dispatcher and writes its fetch-standard response.                                                                                                                                                                                 |
-| `createListener`        | function | `<TState>(dispatcher: DispatcherInterface<TState>, state: StateFunction<TState>) => ListenerFunction`                                                  | Creates a `node:http` request listener over a core `DispatcherInterface` — the whole server face's entry point: converts the incoming message to a fetch `Request`, hands it to the dispatcher with the consumer's per-request `state`, and writes the resulting `Response` back. |
+| `isAuthority`       | function | `(value: unknown) => value is string`                          | Checks whether a value is an HTTP authority a server accepts: a host with an optional port, and no userinfo.                                                               |
 
 ### Classes
 
@@ -147,9 +144,7 @@ Browser and server usage appear under [Patterns](#patterns).
 | `NavigatorEventMap`      | type      | `{ readonly navigate: readonly [match: RouterMatch<Meta>]; }`                                                                                                                                                                                                                                                                                                                     | Represents the `Navigator`'s event map — the single `navigate` signal a consumer observes.                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `NavigatorOptions`       | interface | `{ routes, history?, base?, fallback?, guard?, intercept?, sensitive?, on?, error? }`                                                                                                                                                                                                                                                                                             | Represents the options for `createNavigator` — the `routes` to dispatch between, the navigation substrate, the optional guard hook, and the Emitter pattern's wiring.                                                                                                                                                                                                                                                                                                                                  |
 | `NavigatorInterface`     | interface | `{ router, emitter, active, start(), stop(), navigate(), match(), destroy() }`                                                                                                                                                                                                                                                                                                    | Represents the headless History/hash navigation entity contract (the behavioral-interface role for the one-class-per-file `Navigator`). Composes a core `Router<Meta>`, resolves the current location on `start()` and on every subsequent navigation event, tracks `active`, and emits `navigate` through the `EmitterInterface`.                                                                                                                                                                     |
-| `RequestOptions`         | interface | `{ origin?, response? }`                                                                                                                                                                                                                                                                                                                                                          | Represents the options for `buildRequest` — URL origin and response-side disconnect tracking.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `ListenerFunction`       | type      | `(request: IncomingMessage, response: ServerResponse) => void`                                                                                                                                                                                                                                                                                                                    | Represents a `node:http` request handler — the function `createListener` returns, matching `http.createServer`'s handler signature.                                                                                                                                                                                                                                                                                                                                                                    |
-| `StateFunction`          | type      | `(message: IncomingMessage) => TState`                                                                                                                                                                                                                                                                                                                                            | Derives a consumer's opaque per-request `TState` from the raw `IncomingMessage` — the `state` argument `createListener` threads into `dispatcher.handle`.                                                                                                                                                                                                                                                                                                                                              |
+| `RequestOptions`         | interface | `{ origin?, response?, signal? }`                                                                                                                                                                                                                                                                                                                                                 | Represents the options for `buildRequest` — URL origin, response-side disconnect tracking, and a linked cancellation signal.                                                                                                                                                                                                                                                                                                                                                                           |
 
 The `count` member of `RouterInterface`, the `prefix` member of `GroupInterface` and
 `DispatchGroupInterface`, the `router` and `emitter` members of `DispatcherInterface`, and the
@@ -333,37 +328,37 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     an `HTMLAnchorElement` — an SVG `<a>` (`SVGAElement`) is not intercepted,
     even inside a same-origin document, and falls through to the browser's
     native navigation.
-20. **Signal fires on client disconnect.** `buildRequest` mints an
-    `@orkestrel/abort` handle and builds the `Request` over its `signal`. The
-    handle aborts if the request connection closes before the message finished
-    (`!message.complete`), preserving that incomplete-request error, or if the
-    paired `RequestOptions.response` closes before the response finished
-    (`!response.writableEnded`). `handleListenerRequest` always supplies that
-    response, so a handler observes both an incomplete request body and the
-    ordinary post-request client disconnect through `request.signal`, with zero
-    router-specific cancellation API. A normally completed response does not
-    abort the signal, and each close observer is one-shot.
-21. **Transport-level 500 is a last resort, not an error policy.**
-    `createListener`'s handler wraps `dispatcher.handle` in a try/catch purely
-    for the connection: when nothing has been sent yet, it writes a bare `500`
-    head and ends the response (never leaking a hanging socket); after headers
-    are already sent, it destroys the connection outright. The router still
-    owns no error policy — a consumer wanting mapped error responses installs
-    its own boundary around `dispatcher.handle` directly; and the core
-    `Dispatcher` never swallows a handler throw into a generic response, as
-    stated earlier.
-22. **Streaming both ways.** `buildRequest` streams a body-carrying method's
-    message into the `Request` through a manual `ReadableStream` pump — a `for
-    await` loop over the `IncomingMessage` enqueueing each chunk, with
-    `duplex: 'half'` set as Node's fetch implementation requires for a
-    streamed request body; `sendResponse` streams a non-`null` `Response`
-    body back to the `ServerResponse` chunk by chunk, ending the target when
-    the stream completes. When a write reports backpressure, it waits for
-    `drain` before pulling the next body chunk, raced against target
-    close/error/destruction so a client disconnect stops the pump promptly;
-    every race listener is removed when that wait settles. A target destroyed
-    mid-stream stops cleanly without throwing.
-23. **Header fidelity.** `buildRequest` copies every incoming header
+20. **The target form decides the URL.** `buildRequest` builds its URL
+    through `buildURL`. An origin-form target is appended to the origin, so
+    `GET //evil.example/admin` keeps the origin's authority and routes the
+    pathname `//evil.example/admin`. An absolute-form target takes its own
+    authority, for `http:` and `https:` only, and the `Host` header is not
+    read. The asterisk form and every other form throw a `ContractError`. The
+    origin is `RequestOptions.origin` when given; otherwise it is the
+    connection's scheme and the `Host` header, which must pass `isAuthority`:
+    a host with an optional port, with no path, userinfo, whitespace, or port
+    above 65535. A consuming server maps the throw to 400.
+21. **The request signal aborts on a peer disconnect or on
+    `RequestOptions.signal`, and on nothing else.** `buildRequest` mints an
+    `@orkestrel/abort` handle linked to `RequestOptions.signal` and builds the
+    `Request` over its `signal`. A peer disconnect is the message closing
+    before it completed, or the paired `RequestOptions.response` closing
+    before it ended. A body cancel, a discarded body, and a finished response
+    never abort it.
+22. **The request body is pull-based.** For a body-carrying method, the body
+    reads the message only when its reader reads, through `readChunk`, with
+    `duplex: 'half'` set as Node's fetch implementation requires. An unread
+    body holds no more than the message's own buffer whatever the upload
+    size, and Node discards it after the response. A cancel discards the
+    remainder in place through `discardBody`, and so does the `finish` of the
+    paired response, so the connection serves its next request.
+23. **A failed response reads as aborted.** `sendResponse` pipes a
+    non-`null` body to the `ServerResponse` through `stream.pipeline`, which
+    honors backpressure. When the peer closes first, it cancels the body, even
+    one waiting for its next chunk, and resolves. When Node refuses a header
+    or the body fails, it destroys the target and rejects, so the client reads
+    an aborted response, never a truncated one that looks complete.
+24. **Header fidelity.** `buildRequest` copies every incoming header
     (multi-value headers comma-joined, except `set-cookie`, appended
     individually); `sendResponse` writes every outgoing header and re-derives
     `set-cookie` through `Headers.getSetCookie()` so multiple response cookies
@@ -567,12 +562,16 @@ const navigator = createNavigator({
 navigator.start()
 ```
 
-### Basic server
+### Composing a server
 
-`createListener` adapts a core `Dispatcher` into a `node:http` request listener:
+The server face converts and writes, and your server composes three calls:
+`buildRequest`, `Dispatcher.handle`, and `sendResponse`. The error policy is
+yours. `buildRequest` throws a `ContractError` for a refused target or `Host`,
+which a server can answer with 400, and `sendResponse` has already destroyed
+the connection when it rejects.
 
 ```ts
-import { createListener } from '@orkestrel/router/server'
+import { buildRequest, sendResponse } from '@orkestrel/router/server'
 import { createDispatcher } from '@orkestrel/router'
 import http from 'node:http'
 
@@ -584,36 +583,13 @@ dispatcher.add({
 		Response.json({ id: context.params.id, requestId: context.state.requestId }),
 })
 
-const server = http.createServer(
-	createListener(dispatcher, () => ({ requestId: crypto.randomUUID() })),
-)
-server.listen(0)
-```
-
-### Converting requests and responses directly
-
-For a runtime seam that needs finer control than `createListener` (custom
-error handling around `dispatcher.handle`, for instance), compose
-`buildRequest`/`sendResponse` directly:
-
-```ts
-import { buildRequest, sendResponse } from '@orkestrel/router/server'
-import { createDispatcher } from '@orkestrel/router'
-import http from 'node:http'
-
-const dispatcher = createDispatcher()
-dispatcher.add({ method: 'GET', path: '/health', handler: () => new Response('ok') })
-
-const server = http.createServer(async (incoming, target) => {
-	const request = buildRequest(incoming, {
-		origin: 'https://api.example.com',
-		response: target,
-	})
+const server = http.createServer(async (message, target) => {
 	try {
-		const response = await dispatcher.handle(request, undefined)
+		const request = buildRequest(message, { response: target })
+		const response = await dispatcher.handle(request, { requestId: crypto.randomUUID() })
 		await sendResponse(response, target)
-	} catch (error) {
-		target.writeHead(500).end(String(error)) // this consumer's own error policy
+	} catch {
+		if (!target.headersSent && !target.destroyed) target.writeHead(500).end() // this consumer's own error policy
 	}
 })
 server.listen(0)
@@ -621,16 +597,17 @@ server.listen(0)
 
 ### Observing client disconnect
 
-The `Request` returned by `buildRequest` carries a `signal` that aborts when the connection
-closes before the response completes:
+The `Request` returned by `buildRequest` carries a `signal` that aborts when the peer
+disconnects, or when the `signal` option aborts, such as a server's own shutdown:
 
 ```ts
 import { buildRequest } from '@orkestrel/router/server'
 import http from 'node:http'
 
+const shutdown = new AbortController()
 const server = http.createServer((incoming, response) => {
-	const request = buildRequest(incoming, { response })
-	request.signal.addEventListener('abort', () => console.log('client disconnected'))
+	const request = buildRequest(incoming, { response, signal: shutdown.signal })
+	request.signal.addEventListener('abort', () => console.log('client gone or server stopping'))
 })
 ```
 
@@ -654,8 +631,12 @@ const server = http.createServer((incoming, response) => {
   render in the consumer, never inside this headless entity.
 - **`stop()`/`destroy()` before disposal** — releases listeners and aborts
   any pending guard; `destroy()` also tears down the `#emitter`.
-- **Prefer `createListener` for the common case** — it wires conversion,
-  dispatch, and the transport-level last-resort `500` together correctly.
+- **Pass the paired response to `buildRequest`** — its `close` aborts the
+  request signal on a disconnect after the body, and its `finish` discards a
+  body the handler left unread, so a keep-alive connection serves its next
+  request.
+- **Cancel a body you stop reading** — a cancel discards the rest of the upload
+  in place; it never aborts `request.signal` and never closes the connection.
 - **Install your own error boundary for mapped error responses** — the
   router (core and this adapter) never invents one; a handler throw
   propagates.
@@ -671,7 +652,7 @@ const server = http.createServer((incoming, response) => {
   interface-to-class method bijection for `RouterInterface`, `GroupInterface`,
   `DispatcherInterface`, `DispatchGroupInterface`, and `NavigatorInterface`, and the
   equality gate: every `Summary` cell against its declaration's description paragraph,
-  the titled `Basic server` fence against the `@example` block of that title (pinned so
+  the titled `Register and match` fence against the `@example` block of that title (pinned so
   the titled pair cannot be retired silently), and the README pitch against this guide's
   tagline. It also runs the flagship fences this project can execute and asserts the
   values their comments claim.
@@ -721,19 +702,26 @@ const server = http.createServer((incoming, response) => {
   `base`), and `findAnchor` (including a click on a styled child inside an
   anchor).
 - [`tests/src/server/validators.test.ts`](../tests/src/server/validators.test.ts) —
-  `isEncryptedSocket` on an encrypted socket, a plain record, and every
-  off-shape value.
+  `isEncryptedSocket` on a real TLS socket, a plain socket, a plain record, and
+  every off-shape value; `isAuthority` over accepted and refused authorities and
+  every non-string value.
 - [`tests/src/server/helpers.test.ts`](../tests/src/server/helpers.test.ts) —
-  `buildRequest` fidelity (method, URL from `Host`, headers including
-  multi-value and `set-cookie`, body streaming, the incomplete-request and
-  complete-request response-side disconnect aborts, plus normal-response
-  signal/listener cleanup) and `sendResponse` (status, headers including
-  `set-cookie`, streamed and empty bodies, a destroyed target mid-stream)
-  over real `node:http` sockets.
-- [`tests/src/server/handlers.test.ts`](../tests/src/server/handlers.test.ts) —
-  `handleListenerRequest` at the transport boundary and `createListener`
-  end-to-end round-trips (matched, 404, 405, auto-HEAD, auto-OPTIONS, a
-  handler throw, and per-request state) over real `node:http` sockets.
+  `buildURL` by target form, scheme, `Host`, and origin, with each refusal;
+  `readChunk` and `discardBody` on a paused message; `buildRequest` fidelity
+  (method, URL, headers including multi-value and `set-cookie`, body streaming,
+  the incomplete-request abort, and normal-response signal and listener
+  cleanup); and `sendResponse` (status, headers including `set-cookie`, bodies,
+  backpressure, a disconnect under pressure, and a body that is no stream) over
+  real `node:http` sockets.
+- [`tests/src/server/integration.test.ts`](../tests/src/server/integration.test.ts) —
+  the HTTP conformance matrix: each row fed to a bare `node:http` control and to
+  the adapter, read through a raw client's own framing parse — the target form
+  and `Host` tables, the unread body's `bytesRead` at two upload sizes, a cancel
+  that leaves the connection reusable, a failed body and a refused header read
+  as aborted, the idle-body cancel on disconnect, the request signal, and the
+  transport rows (matched, 404, 405, auto-HEAD, auto-OPTIONS, a handler throw,
+  and per-request state) through the three-call composition, with the
+  `Composing a server` fence transcribed.
 
 ## See also
 
@@ -741,6 +729,6 @@ const server = http.createServer((incoming, response) => {
   contract & validation architecture, one engine with native overrides,
   and documentation as contracts.
 - [`abort.md`](abort.md) — `@orkestrel/abort`, the supersede-safe guard
-  cancellation primitive the Navigator composes, and the client-disconnect
-  cancellation primitive the Listener composes.
+  cancellation primitive the Navigator composes, and the primitive behind the
+  request signal `buildRequest` builds.
 - [`README.md`](README.md) — the guides index.
