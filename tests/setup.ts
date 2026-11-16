@@ -162,8 +162,9 @@ export const PROTOTYPE_NAMES: readonly string[] = Object.freeze(
 )
 
 /**
- * Lists the printable ASCII members of the declared path percent-encode set (URL Standard
- * § 1.3). Every C0 control, DEL, and every non-ASCII code point is encoded as well.
+ * Lists the printable ASCII members of the declared path encode set: the URL Standard's path
+ * percent-encode set (§ 1.3) plus `|`, which Chromium encodes in a path and Node does not.
+ * Every C0 control, DEL, and every non-ASCII code point is encoded as well.
  */
 export const PATH_ENCODED: readonly string[] = Object.freeze([
 	' ',
@@ -175,6 +176,7 @@ export const PATH_ENCODED: readonly string[] = Object.freeze([
 	'^',
 	'`',
 	'{',
+	'|',
 	'}',
 ])
 
@@ -210,7 +212,8 @@ export const ENCODER_PAIRS: ReadonlyArray<readonly [text: string, encoded: strin
 		['%', '%'],
 		['a/b', 'a/b'],
 		['a\\b', 'a\\b'],
-		['|[]$()+*.:@!~', '|[]$()+*.:@!~'],
+		['|', '%7C'],
+		['[]$()+*.:@!~', '[]$()+*.:@!~'],
 		['/café/a b', '/caf%C3%A9/a%20b'],
 		['', ''],
 	],
@@ -962,4 +965,46 @@ export async function readMatrixOutcome(
 	const text = response.body === null ? undefined : await response.text()
 	const body: unknown = text === undefined ? null : json ? JSON.parse(text) : text
 	return { status: response.status, allow, body, cancels }
+}
+
+/** Lists the patterns of the dispatcher the cost row times: a REST-shaped table of ten routes. */
+export const COST_PATHS: readonly string[] = Object.freeze([
+	'/users',
+	'/users/:id',
+	'/users/:id/edit',
+	'/posts',
+	'/posts/:id',
+	'/files/*rest',
+	'/a/b',
+	'/c/:d',
+	'/e',
+	'/f/:g.json',
+])
+
+/**
+ * Measures the median milliseconds one `Dispatcher.handle` call spends on `/users/<text>`: seven
+ * samples, each the mean of five sequential calls.
+ *
+ * @param dispatcher - The dispatcher to time
+ * @param text - The path text after `/users/`
+ * @returns The median per-call duration in milliseconds
+ */
+export async function measureDispatchCost(
+	dispatcher: { readonly handle: (request: Request, state: undefined) => Promise<Response> },
+	text: string,
+): Promise<number> {
+	const request = new Request(`http://x/users/${text}`)
+	const samples = await Array.from({ length: 7 }).reduce<Promise<readonly number[]>>(
+		async (previous) => {
+			const earlier = await previous
+			const start = performance.now()
+			await Array.from({ length: 5 }).reduce<Promise<unknown>>(async (pending) => {
+				await pending
+				return dispatcher.handle(request, undefined)
+			}, Promise.resolve())
+			return [...earlier, (performance.now() - start) / 5]
+		},
+		Promise.resolve([]),
+	)
+	return samples.toSorted((a, b) => a - b)[3] ?? Number.NaN
 }

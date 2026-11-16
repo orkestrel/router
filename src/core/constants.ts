@@ -57,26 +57,46 @@ export const METHOD_LIST = Object.freeze([
 export const HTTP_METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
 
 /**
- * Holds the printable ASCII members of the URL Standard's path percent-encode set — with
- * every C0 control, U+007F, and every greater code point, the code points `encodePath`
- * writes as UTF-8 percent-escapes.
+ * Holds the printable ASCII members of the path encode set `encodePath` reads: the URL
+ * Standard's path percent-encode set plus `|`, beside every C0 control, U+007F, and greater
+ * code point.
  *
  * @remarks
  * Transcribed from URL Standard § 1.3, Percent-encoded bytes (Living Standard, Last Updated
  * 2026-11-14, commit snapshot `47721bbd2d518f249ae63d08b81514c2d13546d8`): the C0 control
  * percent-encode set is the C0 controls and every code point greater than U+007E, the query
  * set adds U+0020, `"`, `#`, `<`, and `>`, and the path set adds `?`, `^`, `` ` ``, `{`, and
- * `}`. The router reads this table, never the host's `URL` parser, so every host compares
- * one text.
+ * `}`. The table adds `|` as a declared departure from the standard: Chromium 153 encodes
+ * `|` in a path as `%7C` while Node 22 leaves it raw, so with `|` in the table both hosts'
+ * requests compare as `%7C`. The router reads this table, never the host's `URL` parser, so
+ * every host compares one text.
  *
  * @example
  * ```ts
  * PATH_ENCODE_SET.has('^') // true
- * PATH_ENCODE_SET.has('|') // false
+ * PATH_ENCODE_SET.has('|') // true — the declared departure
+ * PATH_ENCODE_SET.has('[') // false
  * ```
  */
 export const PATH_ENCODE_SET: ReadonlySet<string> = Object.freeze(
-	new Set<string>([' ', '"', '#', '<', '>', '?', '^', '`', '{', '}']),
+	new Set<string>([' ', '"', '#', '<', '>', '?', '^', '`', '{', '|', '}']),
+)
+
+/**
+ * Lists the uppercase percent-escape of every byte value, indexed by the byte, so `encodePath`
+ * writes each escape with one lookup.
+ *
+ * @example
+ * ```ts
+ * PERCENT_ESCAPES[0x5e] // '%5E'
+ * PERCENT_ESCAPES[0xc3] // '%C3'
+ * ```
+ */
+export const PERCENT_ESCAPES: readonly string[] = Object.freeze(
+	Array.from(
+		{ length: 0x100 },
+		(_, byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`,
+	),
 )
 
 /**

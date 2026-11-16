@@ -1,6 +1,9 @@
+import { once as waitFor } from 'node:events'
+import { createServer } from 'node:http'
+import { connect } from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { ContractError, isContractError } from '@orkestrel/contract'
-import { captureError, createRecorder } from '@orkestrel/test'
+import { captureError, collect, createRecorder } from '@orkestrel/test'
 import { compilePath, createDispatcher, createRouter, encodePath, matchPath } from '@src/core'
 import {
 	ACCEPTED_PATHS,
@@ -15,11 +18,13 @@ import {
 	buildMatrixRequests,
 	buildTextRequests,
 	CASE_ROWS,
+	COST_PATHS,
 	createMatrixHandler,
 	describeRefusedPoints,
 	dispatchReference,
 	encodeReferencePath,
 	filterDistinctPaths,
+	measureDispatchCost,
 	orderRoutes,
 	parseReference,
 	readMatrixOutcome,
@@ -319,6 +324,56 @@ describe('router path matrix — the declared path text', () => {
 		expect(router.match('/caf%c3%a9')).toBeUndefined()
 		expect(router.match('/100%25')).toBeUndefined()
 		expect(router.match('/100%')?.meta).toBe('percent')
+	})
+})
+
+describe('router path matrix — the encoder cost on untrusted text', () => {
+	it('A1: costs a run of `^` within its canonical length of a run of `a`, and grows as the run does', async () => {
+		const dispatcher = createDispatcher()
+		dispatcher.add(
+			COST_PATHS.map((path) => ({
+				method: 'GET' as const,
+				path,
+				handler: () => new Response('ok'),
+			})),
+		)
+		const short = await measureDispatchCost(dispatcher, '^'.repeat(3000))
+		const caret = await measureDispatchCost(dispatcher, '^'.repeat(12000))
+		const letterShort = await measureDispatchCost(dispatcher, 'a'.repeat(3000))
+		const letter = await measureDispatchCost(dispatcher, 'a'.repeat(12000))
+		const again = await measureDispatchCost(dispatcher, 'a'.repeat(12000))
+		const noise = Math.max(letter, again) / Math.min(letter, again)
+		// Three canonical characters per `^`, each at most five `a`-run steps (scan, match, lookup, write).
+		expect(caret / letter).toBeLessThan(3 * 5 * noise)
+		expect(caret / short).toBeLessThan((2 * letter) / letterShort)
+		dispatcher.destroy()
+	})
+})
+
+describe('router path matrix — a `|` literal on Node', () => {
+	it('A2: answers `/a|b` with 200 through Node fetch and a raw socket', async () => {
+		const dispatcher = createDispatcher()
+		dispatcher.add({ method: 'GET', path: '/a|b', handler: () => new Response('pipe') })
+		const server = createServer((message, response) => {
+			void dispatcher
+				.handle(new Request(`http://127.0.0.1${message.url ?? '/'}`), undefined)
+				.then((answer) => {
+					response.writeHead(answer.status, { connection: 'close' })
+					response.end()
+				})
+		})
+		server.listen(0, '127.0.0.1')
+		await waitFor(server, 'listening')
+		const address = server.address()
+		const port = typeof address === 'object' && address !== null ? address.port : 0
+		const fetched = await fetch(`http://127.0.0.1:${port}/a|b`)
+		const socket = connect(port, '127.0.0.1')
+		await waitFor(socket, 'connect')
+		socket.end('GET /a|b HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n')
+		const raw = (await collect<Buffer>(socket)).map((chunk) => chunk.toString('latin1')).join('')
+		server.close()
+		await waitFor(server, 'close')
+		expect([fetched.status, raw.split('\r\n')[0]]).toEqual([200, 'HTTP/1.1 200 OK'])
 	})
 })
 

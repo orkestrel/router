@@ -350,11 +350,12 @@ describe('encodePath', () => {
 		expect(encodePath('a b')).toBe('a%20b')
 		expect(encodePath('q?a#b')).toBe('q%3Fa%23b')
 		expect(encodePath('{c}^')).toBe('%7Bc%7D%5E')
+		expect(encodePath('a|b')).toBe('a%7Cb')
 	})
 
 	it('leaves path-safe text, regex metacharacters, `\\`, and an existing `%` unchanged', () => {
 		expect(encodePath('report.json')).toBe('report.json')
-		expect(encodePath('(x)|[y]+$')).toBe('(x)|[y]+$')
+		expect(encodePath('(x)[y]+$')).toBe('(x)[y]+$')
 		expect(encodePath('a\\b')).toBe('a\\b')
 		expect(encodePath('100%')).toBe('100%')
 		expect(encodePath('us%65rs')).toBe('us%65rs')

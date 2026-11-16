@@ -2,7 +2,9 @@ import type { CompiledPath, Method, RouteEntry, RouteInput, SegmentRank } from '
 import { ContractError, escapeRegExp, isArray, preview } from '@orkestrel/contract'
 import {
 	PATH_ENCODE_PATTERN,
+	PATH_ENCODE_SET,
 	PATH_REFUSED_SET,
+	PERCENT_ESCAPES,
 	PROTOTYPE_KEYS,
 	TIER_LITERAL,
 	TIER_PARAM,
@@ -216,16 +218,19 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 
 /**
  * Encodes path text, raw or already encoded, into the canonical form the router compares:
- * each member of the path percent-encode set becomes its UTF-8 percent-escapes.
+ * each member of its path encode set becomes its UTF-8 percent-escapes.
  *
  * @remarks
  * Reads its own table, {@link import('./constants.js').PATH_ENCODE_SET}, and never the host's
  * `URL` parser, so every host gives one text. A C0 control, U+0020, `"`, `#`, `<`, `>`, `?`,
- * `^`, `` ` ``, `{`, `}`, U+007F, and every greater code point become uppercase-hex UTF-8
- * escapes, and a lone surrogate encodes as U+FFFD (`%EF%BF%BD`). Every other code point stays
- * as written: `/`, `\`, `|`, `[`, `]`, an existing escape such as `%65` (hex case included),
- * and a `%` that opens no escape, which never becomes `%25`. Nothing is decoded, so `%65`
- * stays apart from `e`. Total, idempotent, and linear in the length of the text.
+ * `^`, `` ` ``, `{`, `|`, `}`, U+007F, and every greater code point become uppercase-hex
+ * UTF-8 escapes (`|` is the table's one departure from the URL Standard's path set), and a
+ * lone surrogate encodes as U+FFFD (`%EF%BF%BD`). Every other code point stays as written:
+ * `/`, `\`, `[`, `]`, an existing escape such as `%65` (hex case included), and a `%` that
+ * opens no escape, which never becomes `%25`. Nothing is decoded, so `%65` stays apart from
+ * `e`. Total and idempotent, with a cost linear in the length of the text: an ASCII member costs
+ * one scan step and one lookup in {@link import('./constants.js').PERCENT_ESCAPES}, and a run of
+ * non-ASCII code points costs one `encodeURIComponent` call over its well-formed text.
  *
  * @param text - Path text, a segment or a whole path
  * @returns The canonical text
@@ -240,15 +245,15 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
  */
 export function encodePath(text: string): string {
 	if (!PATH_ENCODE_PATTERN.test(text)) return text
-	return [...text]
-		.map((char) =>
-			PATH_ENCODE_PATTERN.test(char)
-				? [...new TextEncoder().encode(char)]
-						.map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`)
-						.join('')
-				: char,
+	// One global pass per class: an ASCII member is one table lookup, and a non-ASCII run is
+	// one `encodeURIComponent` call over its well-formed text (a lone surrogate becomes U+FFFD).
+	const members = escapeRegExp([...PATH_ENCODE_SET].join(''))
+	return text
+		.replace(
+			new RegExp(`[\\0-\\x1F\\x7F${members}]`, 'g'),
+			(char) => PERCENT_ESCAPES[char.charCodeAt(0)] ?? '',
 		)
-		.join('')
+		.replace(/[^\0-\x7F]+/gu, (run) => encodeURIComponent(run.toWellFormed()))
 }
 
 /**

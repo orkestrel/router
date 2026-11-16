@@ -638,14 +638,19 @@ describe('Navigator — match(path) is a pure lookup', () => {
 
 describe('Navigator — every door reaches an encoded literal (F9)', () => {
 	for (const path of DOOR_PATHS) {
+		// Another route registers first, so a door that misses lands on it, never on `path`.
+		const other = DOOR_PATHS.find((candidate) => candidate !== path) ?? path
+
 		it(`resolves ${path} through history navigate`, () => {
-			const navigator = startNavigator(navigators, buildDoorRoutes(path), { history: true })
+			const navigator = startNavigator(navigators, buildDoorRoutes(other), { history: true })
+			expect(navigator.active?.path).toBe(other)
 			navigator.navigate(path)
 			expect(navigator.active?.path).toBe(path)
 		})
 
 		it(`resolves ${path} through hash navigate`, async () => {
-			const navigator = startNavigator(navigators, buildDoorRoutes(path))
+			const navigator = startNavigator(navigators, buildDoorRoutes(other))
+			expect(navigator.active?.path).toBe(other)
 			navigator.navigate(path)
 			await waitForDelay()
 			expect(navigator.active?.path).toBe(path)
@@ -653,7 +658,7 @@ describe('Navigator — every door reaches an encoded literal (F9)', () => {
 
 		it(`resolves ${path} as the configured fallback`, async () => {
 			await setHash('#/nowhere')
-			const navigator = startNavigator(navigators, buildDoorRoutes('/plain'), { fallback: path })
+			const navigator = startNavigator(navigators, buildDoorRoutes(other), { fallback: path })
 			expect(navigator.active?.path).toBe(path)
 		})
 
