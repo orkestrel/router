@@ -365,6 +365,14 @@ export const HOST_CASES: readonly TargetCase[] = Object.freeze([
 		url: undefined,
 	},
 	{
+		name: 'two Host field lines whose names differ in case',
+		request: 'GET /path HTTP/1.1\r\nHost: a.local\r\nHOST: b.local\r\n\r\n',
+		target: '/path',
+		host: 'a.local',
+		origin: undefined,
+		url: undefined,
+	},
+	{
 		name: 'one Host value on two field lines',
 		request: 'GET /path HTTP/1.1\r\nHost: a.local\r\nHost: a.local\r\n\r\n',
 		target: '/path',

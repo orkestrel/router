@@ -5,7 +5,7 @@
 // This project runs in Node with the browser disabled, so it cannot execute a fence that
 // touches `window`: the `@orkestrel/router/browser` fences are transcribed in
 // `tests/src/browser/Navigator.test.ts` instead, and the `@orkestrel/router/server` fences
-// are covered by `tests/src/server/handlers.test.ts` over real `node:http` sockets.
+// are covered by `tests/src/server/integration.test.ts` over real `node:http` sockets.
 
 import { GuideCommand } from '@orkestrel/guide/server'
 import { readInventory } from '@orkestrel/test/server'
