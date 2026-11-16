@@ -163,7 +163,7 @@ describe('Dispatcher — default responders', () => {
 			undefined,
 		)
 		expect(response.status).toBe(405)
-		expect(response.headers.get('allow')).toContain('GET')
+		expect(response.headers.get('allow')).toBe('GET, HEAD, OPTIONS')
 		dispatcher.destroy()
 	})
 

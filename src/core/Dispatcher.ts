@@ -14,9 +14,9 @@ import type {
 } from './types.js'
 import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
-import { ContractError, isArray, isFunction, isString, preview } from '@orkestrel/contract'
+import { ContractError, isFunction, isString, preview } from '@orkestrel/contract'
 import { HTTP_METHODS } from './constants.js'
-import { computeDispatchKey } from './helpers.js'
+import { collectInputs, computeDispatchKey } from './helpers.js'
 import { parseMethod } from './parsers.js'
 import { Router } from './Router.js'
 import { DispatchGroup } from './DispatchGroup.js'
@@ -39,9 +39,10 @@ import { DispatchGroup } from './DispatchGroup.js'
  *   delegated to the underlying `Router`'s own guard. `match`/`handle` stay
  *   guard-free.
  * - **Auto-`HEAD` / auto-`OPTIONS`.** A `HEAD` request with no registered
- *   `HEAD` route runs the matching `GET` handler and strips the response
- *   body; an `OPTIONS` request with no registered `OPTIONS` route answers
- *   `204` with a derived `Allow` header.
+ *   `HEAD` route runs the matching `GET` handler, cancels its response body,
+ *   and answers with the status and headers alone; an `OPTIONS` request with no
+ *   registered `OPTIONS` route answers `204` with the derived `Allow` header,
+ *   the same set a `405` carries, `OPTIONS` included.
  * - **Handler throws propagate.** `handle` never invents an error boundary —
  *   a handler throw reaches the caller uncaught.
  * - **Emitter.** Owns a `#emitter` for {@link DispatcherEventMap};
@@ -92,8 +93,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
 	add(input: RouteInput<string, TState> | ReadonlyArray<RouteInput<string, TState>>): void {
-		const inputs = isArray(input) ? input : [input]
-		for (const route of inputs) this.#register(route)
+		this.#router.add(collectInputs(input).map((route) => this.#admit(route)))
 	}
 
 	group(prefix: string): DispatchGroupInterface<TState> {
@@ -145,9 +145,8 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		this.#emitter.destroy()
 	}
 
-	// Validate the registration boundary (handler function, known method), then delegate
-	// path validation + dedup to the underlying `Router`'s own guard.
-	#register(input: RouteInput<string, TState>): void {
+	// Check the handler and method and build the router entry; the router admits the path.
+	#admit(input: RouteInput<string, TState>): RouteEntry<RouteRecord<TState>> {
 		if (!isFunction(input.handler))
 			throw new ContractError('a route handler must be a function', {
 				code: 'literal',
@@ -167,7 +166,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 				},
 			})
 		const name = input.name
-		this.#router.add({
+		return {
 			path: input.path,
 			...(name === undefined ? {} : { name }),
 			meta: {
@@ -175,17 +174,17 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 				handler: input.handler,
 				...(name === undefined ? {} : { name }),
 			},
-		})
+		}
 	}
 
-	// The derived `Allow` set for a pathname — every distinct registered method, with `HEAD`
-	// added whenever `GET` is present and `HEAD` is not explicitly registered.
+	// Registered methods in order, then `HEAD` when `GET` is present, then `OPTIONS`; empty on a miss.
 	#allow(pathname: string): readonly Method[] {
-		const entries: ReadonlyArray<RouteEntry<RouteRecord<TState>>> = this.#router.entries(pathname)
-		const methods = new Set<Method>()
-		for (const entry of entries) methods.add(entry.meta.method)
-		if (methods.has('GET')) methods.add('HEAD')
-		return [...methods]
+		const registered = this.#router.entries(pathname).map((entry) => entry.meta.method)
+		if (registered.length === 0) return []
+		const derived: readonly Method[] = registered.includes('GET')
+			? ['HEAD', 'OPTIONS']
+			: ['OPTIONS']
+		return [...new Set<Method>([...registered, ...derived])]
 	}
 
 	#respondUnmatched(request: Request): Response | Promise<Response> {
@@ -204,7 +203,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	}
 
 	// A matched dispatch — either the winning handler runs directly, or (for a derived `HEAD`
-	// with no explicit `HEAD` route) the `GET` handler runs and the response body is stripped.
+	// with no explicit `HEAD` route) the `GET` handler runs and its response body is cancelled.
 	async #respondMatched(
 		request: Request,
 		state: TState,
@@ -220,22 +219,22 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 			state,
 		}
 		const response = await match.meta.handler(request, context)
-		if (method === 'HEAD' && match.meta.method === 'GET')
-			return new Response(null, {
-				status: response.status,
-				statusText: response.statusText,
-				headers: response.headers,
-			})
-		return response
+		if (method !== 'HEAD' || match.meta.method !== 'GET') return response
+		// A locked or errored body rejects the cancel; the derived answer sends no body either way.
+		response.body?.cancel().catch(() => undefined)
+		return new Response(null, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: response.headers,
+		})
 	}
 
 	// Derived `OPTIONS` — no explicit `OPTIONS` route registered for this pathname: answer
-	// `204` with the derived `Allow` set (adding `OPTIONS` itself, always answerable), emitting
-	// `match` under the most-specific REGISTERED pattern the pathname resolved to, so a consumer
-	// aggregating by pattern sees bounded cardinality rather than one label per request path.
+	// `204` with the derived `Allow` set, emitting `match` under the most-specific REGISTERED
+	// pattern the pathname resolved to, so a consumer aggregating by pattern sees bounded
+	// cardinality rather than one label per request path.
 	#respondAutoOptions(pattern: string, allow: readonly Method[]): Response {
 		this.#emitter.emit('match', 'OPTIONS', pattern)
-		const headers = new Headers({ Allow: [...allow, 'OPTIONS'].join(', ') })
-		return new Response(null, { status: 204, headers })
+		return new Response(null, { status: 204, headers: { Allow: allow.join(', ') } })
 	}
 }

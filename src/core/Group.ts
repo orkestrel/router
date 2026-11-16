@@ -1,6 +1,5 @@
 import type { GroupInterface, RouteEntry, RouterInterface } from './types.js'
-import { isArray } from '@orkestrel/contract'
-import { joinPaths } from './helpers.js'
+import { collectInputs, joinPaths } from './helpers.js'
 
 /**
  * Represents a prefix-scoped registration handle over a {@link import('./Router.js').Router} —
@@ -35,9 +34,8 @@ export class Group<Meta> implements GroupInterface<Meta> {
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
 	add(input: RouteEntry<Meta> | ReadonlyArray<RouteEntry<Meta>>): void {
-		const inputs = isArray(input) ? input : [input]
 		this.#parent.add(
-			inputs.map((entry) => ({ ...entry, path: joinPaths(this.prefix, entry.path) })),
+			collectInputs(input).map((entry) => ({ ...entry, path: joinPaths(this.prefix, entry.path) })),
 		)
 	}
 
