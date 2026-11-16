@@ -42,7 +42,7 @@ const response = await dispatcher.handle(new Request('http://x/users/7'), { user
 
 Path patterns are `/`-prefixed: a literal segment (`/users`), a `:name` param
 (one segment), or a final `*name` wildcard (captures the rest of the path).
-Matching is case-sensitive by default (`sensitive: false` opts out); a single
+Matching is case-sensitive by default (`sensitive: false` folds ASCII letters); a single
 trailing slash is always optional except on the root `/` and the empty
 pattern.
 
@@ -58,23 +58,26 @@ Browser and server usage appear under [Patterns](#patterns).
 
 ### Constants
 
-| Name             | Kind  | Signature                                                               | Summary                                                                                                                                                                                                              |
-| ---------------- | ----- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `METHOD_LIST`    | const | `readonly ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]` | Lists the HTTP methods a `DispatcherInterface` registers routes under, in canonical order — a frozen literal tuple, and the single source the `Method` type, `HTTP_METHODS`, and `parseMethod` are all derived from. |
-| `HTTP_METHODS`   | const | `ReadonlySet<string>`                                                   | Holds every HTTP method a `DispatcherInterface` registers routes under as a `ReadonlySet` — backs the registration guard (`add` rejects any `method` outside this set).                                              |
-| `PROTOTYPE_KEYS` | const | `ReadonlySet<string>`                                                   | Holds the own property names of `Object.prototype` — the names `compilePath` refuses as a param name, so a params record never shadows or drops an inherited key.                                                    |
-| `TIER_LITERAL`   | const | `2`                                                                     | Names the specificity tier for a \*\*literal\*\* path segment (`/users`) — the highest tier, always outranking a param or wildcard segment at the same position.                                                     |
-| `TIER_PARAM`     | const | `1`                                                                     | Names the specificity tier for a \*\*param\*\* path segment (`:name`) — ranks below a literal segment and above a wildcard segment at the same position.                                                             |
-| `TIER_WILDCARD`  | const | `0`                                                                     | Names the specificity tier for a \*\*wildcard\*\* path segment (`*name`) — the lowest tier; a wildcard only ever wins against another wildcard shape (an equal-specificity tie resolved by registration order).      |
+| Name                  | Kind  | Signature                                                               | Summary                                                                                                                                                                                                              |
+| --------------------- | ----- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `METHOD_LIST`         | const | `readonly ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]` | Lists the HTTP methods a `DispatcherInterface` registers routes under, in canonical order — a frozen literal tuple, and the single source the `Method` type, `HTTP_METHODS`, and `parseMethod` are all derived from. |
+| `HTTP_METHODS`        | const | `ReadonlySet<string>`                                                   | Holds every HTTP method a `DispatcherInterface` registers routes under as a `ReadonlySet` — backs the registration guard (`add` rejects any `method` outside this set).                                              |
+| `PATH_ENCODE_SET`     | const | `ReadonlySet<string>`                                                   | Holds the printable ASCII members of the URL Standard's path percent-encode set — with every C0 control, U+007F, and every greater code point, the code points `encodePath` writes as UTF-8 percent-escapes.         |
+| `PATH_ENCODE_PATTERN` | const | `RegExp`                                                                | Matches one code point `encodePath` writes as escapes: a C0 control, a member of `PATH_ENCODE_SET`, U+007F, or any greater code point.                                                                               |
+| `PATH_REFUSED_SET`    | const | `ReadonlySet<string>`                                                   | Holds the code points a route pattern must not hold: `\`, tab, line feed, and carriage return, which a URL parser reads as a separator or deletes, so the pattern would name a path other than its text.             |
+| `PROTOTYPE_KEYS`      | const | `ReadonlySet<string>`                                                   | Holds the own property names of `Object.prototype` — the names `compilePath` refuses as a param name, so a params record never shadows or drops an inherited key.                                                    |
+| `TIER_LITERAL`        | const | `2`                                                                     | Names the specificity tier for a \*\*literal\*\* path segment (`/users`) — the highest tier, always outranking a param or wildcard segment at the same position.                                                     |
+| `TIER_PARAM`          | const | `1`                                                                     | Names the specificity tier for a \*\*param\*\* path segment (`:name`) — ranks below a literal segment and above a wildcard segment at the same position.                                                             |
+| `TIER_WILDCARD`       | const | `0`                                                                     | Names the specificity tier for a \*\*wildcard\*\* path segment (`*name`) — the lowest tier; a wildcard only ever wins against another wildcard shape (an equal-specificity tie resolved by registration order).      |
 
 ### Helpers
 
 | Name                   | Kind     | Signature                                                                                                      | Summary                                                                                                                                                                                                                                                                                                                        |
 | ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `canonicalizePath`     | function | `(path: string) => string`                                                                                     | Canonicalizes a route path for registry identity — strips a single trailing slash, except the root `/` (and the empty pattern). The trailing-slash fold `compilePath` normalizes a pattern through, so identity agrees with the matcher.                                                                                       |
+| `canonicalizePath`     | function | `(path: string) => string`                                                                                     | Canonicalizes a route path for registry identity — encodes it with `encodePath` and strips a single trailing slash, except the root `/` (and the empty pattern). The trailing-slash fold `compilePath` normalizes a pattern through, so identity agrees with the matcher.                                                      |
 | `computeDispatchKey`   | function | `(entry: RouteEntry<{ readonly method: Method; }>) => string`                                                  | Computes the canonical `METHOD /path` registry key for a method-dimensioned dispatcher route.                                                                                                                                                                                                                                  |
 | `compilePath`          | function | `(path: string, sensitive?: boolean) => CompiledPath`                                                          | Compiles a route path pattern into an anchored regex, its ordered param names, and its specificity vector.                                                                                                                                                                                                                     |
-| `encodeSegment`        | function | `(text: string) => string`                                                                                     | Encodes the literal text of one path segment the way the WHATWG URL parser writes it into a pathname.                                                                                                                                                                                                                          |
+| `encodePath`           | function | `(text: string) => string`                                                                                     | Encodes path text, raw or already encoded, into the canonical form the router compares: each member of the path percent-encode set becomes its UTF-8 percent-escapes.                                                                                                                                                          |
 | `collectInputs`        | function | `<T>(input: T \| readonly T[]) => readonly T[]`                                                                | Returns the input list as it is, or a one-entry list holding a single input — the shape every batch-capable `add` reads.                                                                                                                                                                                                       |
 | `decodeParam`          | function | `(value: string) => string`                                                                                    | Decodes one captured param value from a URL, tolerating a malformed percent-escape — the decode `matchPath` applies to each captured group.                                                                                                                                                                                    |
 | `matchPath`            | function | `(compiled: CompiledPath, pathname: string) => Readonly<Record<string, string>> \| undefined`                  | Extracts the URL-decoded params a compiled path captures from a concrete pathname, or `undefined` when the pathname does not match.                                                                                                                                                                                            |
@@ -113,7 +116,7 @@ Browser and server usage appear under [Patterns](#patterns).
 
 | Name            | Kind  | Signature                                                                                             | Summary                                                                                                                                                                                                                                                                                                    |
 | --------------- | ----- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Router`        | class | `new <Meta>(options?: RouterOptions<Meta>) => RouterInterface<Meta>`                                  | Represents the path-matching + registry engine — registers `{ path, meta, name? }` entries (compiling each path once) and resolves an encoded pathname to the most specific matching entry. The shared machine both the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose.     |
+| `Router`        | class | `new <Meta>(options?: RouterOptions<Meta>) => RouterInterface<Meta>`                                  | Represents the path-matching + registry engine — registers `{ path, meta, name? }` entries (compiling each path once) and resolves raw or encoded text to the most specific matching entry. The shared machine both the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose.     |
 | `Group`         | class | `new <Meta>(parent: RouterInterface<Meta>, prefix: string) => GroupInterface<Meta>`                   | Represents a prefix-scoped registration handle over a `Router` — pure string composition, no independent state or storage.                                                                                                                                                                                 |
 | `Dispatcher`    | class | `new <TState = undefined>(options?: DispatcherOptions<TState>) => DispatcherInterface<TState>`        | Represents the fetch-standard, method-dimensioned dispatch entity — layers HTTP method dispatch and web-standard `Request`/`Response` handling over one internal `Router<RouteRecord<TState>>`. The core machine the server face and any fetch-native runtime consume directly.                            |
 | `DispatchGroup` | class | `new <TState>(parent: DispatcherInterface<TState>, prefix: string) => DispatchGroupInterface<TState>` | Represents a prefix-scoped registration handle over a `Dispatcher` — the method-dimensioned counterpart of `Group`.                                                                                                                                                                                        |
@@ -136,7 +139,7 @@ Browser and server usage appear under [Patterns](#patterns).
 | `RouterMatch`            | interface | `{ path, params, meta, name? }`                                                                                                                                                                                                                                                                                                                                                   | Represents one matched route — the winning entry's registered pattern, its decoded params, its `meta` payload, and its optional `name`.                                                                                                                                                                                                                                                                                                                                                                |
 | `AnswerHandler`          | type      | `(meta: Meta) => boolean`                                                                                                                                                                                                                                                                                                                                                         | Represents the native-override seam — a predicate deciding whether an entry's `meta` answers a given `match` call, beyond path matching.                                                                                                                                                                                                                                                                                                                                                               |
 | `RouterOptions`          | interface | `{ entries?, sensitive?, key? }`                                                                                                                                                                                                                                                                                                                                                  | Represents the options for `createRouter` — an optional initial entry set, the case-sensitivity toggle, and the dedup identity function.                                                                                                                                                                                                                                                                                                                                                               |
-| `RouterInterface`        | interface | `{ count, add(), match(), entries(), group(), clear() }`                                                                                                                                                                                                                                                                                                                          | Represents the path-matching + registry engine contract (the behavioral-interface role for the one-class-per-file `Router`). Registers `{ path, meta, name? }` entries (compiling each path once) and resolves an encoded pathname to the most specific matching entry by the segment-by-segment precedence `compareSpecificity` defines, a remaining tie going to the earlier registration. The shared engine both the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose. |
+| `RouterInterface`        | interface | `{ count, add(), match(), entries(), group(), clear() }`                                                                                                                                                                                                                                                                                                                          | Represents the path-matching + registry engine contract (the behavioral-interface role for the one-class-per-file `Router`). Registers `{ path, meta, name? }` entries (compiling each path once) and resolves path text, raw or encoded, to the most specific matching entry by the per-segment precedence `compareSpecificity` defines, a remaining tie going to the earlier registration. The shared engine both the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose. |
 | `GroupInterface`         | interface | `{ prefix, add(), group() }`                                                                                                                                                                                                                                                                                                                                                      | Represents a prefix-scoped registration handle over a `RouterInterface` — pure string composition, no independent state or storage.                                                                                                                                                                                                                                                                                                                                                                    |
 | `Method`                 | type      | `(typeof METHOD_LIST)[number]`                                                                                                                                                                                                                                                                                                                                                    | Names the HTTP methods a `DispatcherInterface` dimensions dispatch over — derived from `METHOD_LIST`, whose membership counterpart is `HTTP_METHODS`.                                                                                                                                                                                                                                                                                                                                                  |
 | `RouteContext`           | interface | `{ params, pattern, url, state }`                                                                                                                                                                                                                                                                                                                                                 | Represents the ambient context a `RouteHandler` receives alongside the raw `Request` — decoded params, the winning pattern, the parsed URL, and the consumer's opaque per-request state.                                                                                                                                                                                                                                                                                                               |
@@ -250,12 +253,17 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    registration for a wildcard anywhere but the final segment, a final
    `*name` followed by more text (`/files/*rest.json`), a param or wildcard
    named for a `PROTOTYPE_KEYS` member (`:__proto__`, `:constructor`), and a
-   name used twice (`/a/:id/b/:id`). The matcher compares the encoded pathname
-   a request URL carries: `compilePath` encodes each literal with
-   `encodeSegment` at registration, so `/café` matches the request
-   `/caf%C3%A9` and `/a b` matches `/a%20b`, and `router.match` takes the
-   encoded form too. A pathname is never decoded before matching, so
-   `/us%65rs` does not match `/users`. Each capture is decoded with
+   name used twice (`/a/:id/b/:id`). It also throws, with code `pattern`, for
+   a pattern holding `\`, tab, line feed, or carriage return anywhere, because
+   a URL parser reads `\` as a separator and deletes the others; the `limit`
+   names each one and its escape (`%5C`, `%09`, `%0A`, `%0D`). The matcher
+   compares one canonical text, which `encodePath` writes from its own table
+   of the path percent-encode set on both sides: on the pattern at
+   registration, and on the request text inside `router.match`,
+   `router.entries`, and `matchPath`. So `/café` matches `/café` and
+   `/caf%C3%A9`, `/^w` matches `/^w` and `/%5Ew`, and `router.match` takes path
+   text raw or encoded. Nothing is decoded before matching, so `/us%65rs`
+   does not match `/users`, and `/100%25` does not match `/100%`. Each capture is decoded with
    `decodeParam` and is opaque text the router refuses nothing in:
    `/files/*rest` captures `../../etc/passwd` from
    `/files/..%2F..%2Fetc%2Fpasswd`. A consumer that maps a capture to a file
@@ -273,15 +281,20 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    and at match time — except the root `/` and the empty pattern, which are
    exempt and anchor exactly.
 6. **Case-sensitive by default.** `sensitive: true` (`Router`/`Dispatcher`
-   construction) is the default; `sensitive: false` folds case during
-   matching without altering the pattern's own stored casing.
+   construction) is the default; `sensitive: false` folds the ASCII letters
+   A to Z with a to z during matching, in literal text and in escape hex,
+   without altering the pattern's own stored casing. No other letter folds:
+   `/CAFÉ` misses `/café` under either setting, while `/CAFé` and
+   `/caf%c3%a9` hit it under `sensitive: false`.
 7. **Dedup with `key`.** When `RouterOptions.key` is set, an entry whose
    computed key already exists replaces the prior entry in place (last write
    wins, no engine rebuild); `Dispatcher` always constructs its internal
    `Router` with `key: computeDispatchKey`, which pairs the route's method
-   with `canonicalizePath(entry.path)`, so two registrations differing only
-   by a trailing slash replace each other while different methods stay
-   distinct.
+   with `canonicalizePath(entry.path)`, the encoded pattern with one trailing
+   slash removed, so two registrations differing only by a trailing slash or
+   by encoding (`/café` and `/caf%C3%A9`) replace each other while different
+   methods stay distinct. A batch `add` admits every entry before it registers
+   any, so a refused batch registers nothing.
 8. **The `answers` seam.** `RouterInterface.match`'s optional
    `AnswerHandler<Meta>` predicate is the single native-override point both
    faces compose differently: the `Dispatcher` passes a method-check, the
@@ -340,8 +353,8 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     unchanged and nothing is emitted. A guard throw routes to the `error`
     handler (not through the emitter's own `emit`) and vetoes.
 17. **Case-sensitive by default.** `sensitive: true` (forwarded to the
-    underlying `Router`) is the default; `sensitive: false` folds case during
-    matching.
+    underlying `Router`) is the default; `sensitive: false` folds the ASCII
+    letters A to Z with a to z during matching, and no other letter.
 18. **Intercepted links carry pathname only (known limitation).** Click
     interception passes only the intercepted link's `/`-prefixed pathname
     through to `navigate` — a query string on the link's `href` is not
@@ -719,15 +732,17 @@ const server = http.createServer((incoming, response) => {
   registration refusal), `decodeParam` (including a malformed `%` escape), `matchPath`,
   `classifySegment` (the literal-vs-param classification fix regression
   case), `computeSpecificity`, `compareSpecificity` (tier, then literal length),
-  `encodeSegment`, `collectInputs`, `joinPaths`, and
+  `encodePath`, `collectInputs`, `joinPaths`, and
   `defineRoute` (identity pass-through, literal `Path` preservation at the
   call site).
 - [`tests/src/core/integration.test.ts`](../tests/src/core/integration.test.ts) —
   the path matrix: `Router.match` and `Dispatcher.handle` against a reference
-  matcher written from the declared grammar, over segment shapes, segment counts,
-  trailing slashes, request forms, case rules, methods, and registration orders, with
-  the precedence applied by sort, an order-permutation property, the registration
-  refusals, and the hand-declared rows for each path finding.
+  matcher written from the declared grammar, with its own encode set, refusal list,
+  and method list, over segment shapes, segment counts, trailing slashes, request
+  forms, case rules, methods, and registration orders, through the URL door and the
+  raw-text door, with the precedence applied by sort, an order-permutation property,
+  the encoder's pairs and a seeded differential, the host row, the registration
+  refusals, the batch admission, and the hand-declared rows for each path finding.
 - [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) —
   `parseMethod` narrowing every registrable verb, rejecting an unknown verb
   and the wrong casing, and accepting exactly the verbs `METHOD_LIST`
@@ -738,7 +753,9 @@ const server = http.createServer((incoming, response) => {
 - [`tests/src/browser/Navigator.test.ts`](../tests/src/browser/Navigator.test.ts) —
   hash and history modes, `navigate()`/`active`/`navigate` event, fallback
   semantics, guard veto (sync + async, including supersede-discard), link
-  interception on/off, `start`/`stop`/`destroy` idempotence,
+  interception on/off, `start`/`stop`/`destroy` idempotence, every door (history
+  and hash `navigate`, the configured and default fallback, raw and encoded `match`)
+  reaching a literal the path encoder changes,
   `NavigatorInterface` conformance, and the transcriptions of this guide's
   `@orkestrel/router/browser` fences.
 - [`tests/src/browser/factories.test.ts`](../tests/src/browser/factories.test.ts) —

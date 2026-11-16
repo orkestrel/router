@@ -1,41 +1,50 @@
 import type { CompiledPath, Method, RouteEntry, RouteInput, SegmentRank } from './types.js'
 import { ContractError, escapeRegExp, isArray, preview } from '@orkestrel/contract'
-import { PROTOTYPE_KEYS, TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
+import {
+	PATH_ENCODE_PATTERN,
+	PATH_REFUSED_SET,
+	PROTOTYPE_KEYS,
+	TIER_LITERAL,
+	TIER_PARAM,
+	TIER_WILDCARD,
+} from './constants.js'
 
 // The PURE path-matching primitives (self-describing helper naming — module scope,
 // no entity context). Every one is exported (the centralized-file rule): a
 // consumer composes them directly, or reaches them through the `Router` engine.
-// They speak ONLY `string` / `RegExp` / `Record`, `URL`, and `decodeURIComponent`
+// They speak ONLY `string` / `RegExp` / `Record`, `TextEncoder`, and `decodeURIComponent`
 // (platform globals valid in Node and the browser alike) — NO DOM, NO `node:*` — so
 // the SAME engine drives a method-dimensioned server dispatcher and a method-less
 // browser navigator.
 
 /**
- * Canonicalizes a route path for registry identity — strips a single trailing
- * slash, except the root `/` (and the empty pattern). The trailing-slash fold
- * {@link compilePath} normalizes a pattern through, so identity agrees with the
- * matcher.
+ * Canonicalizes a route path for registry identity — encodes it with `encodePath` and
+ * strips a single trailing slash, except the root `/` (and the empty pattern). The
+ * trailing-slash fold {@link compilePath} normalizes a pattern through, so identity
+ * agrees with the matcher.
  *
  * @remarks
- * Mirrors {@link compilePath}'s trailing-slash folding: `/users/` canonicalizes
- * to `/users` (the two compile to the same regex and match the same
- * pathnames), while the root `/` and the empty `''` are EXEMPT (a bare `/`
- * already matches `/`; stripping it would break that). Pure and total — a path
- * without a trailing slash returns unchanged.
+ * Mirrors {@link compilePath}'s canonical pattern: `/users/` canonicalizes to `/users`,
+ * and `/café` and `/caf%C3%A9` both canonicalize to `/caf%C3%A9` (each pair compiles to
+ * the same regex and matches the same path text), while the root `/` and the empty `''`
+ * are EXEMPT from the slash fold (a bare `/` already matches `/`; stripping it would
+ * break that). Pure and total — a path the encoder leaves alone and that ends in no
+ * trailing slash returns unchanged.
  *
  * @param path - The route path pattern
- * @returns The canonical path (one trailing slash removed, except `/` and `''`)
+ * @returns The canonical path (encoded, one trailing slash removed, except `/` and `''`)
  *
  * @example
  * ```ts
  * canonicalizePath('/users/') // '/users'
- * canonicalizePath('/users') // '/users'
+ * canonicalizePath('/café') // '/caf%C3%A9'
  * canonicalizePath('/') // '/'
  * canonicalizePath('') // ''
  * ```
  */
 export function canonicalizePath(path: string): string {
-	return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+	const encoded = encodePath(path)
+	return encoded.length > 1 && encoded.endsWith('/') ? encoded.slice(0, -1) : encoded
 }
 
 /**
@@ -67,15 +76,17 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * Splits the CANONICALIZED path into segments. Each `:name` segment becomes a
  * `([^/]+)` capture group; the FINAL segment may instead be `*name`, which
  * becomes a `(.+)` capture spanning the REST of the path including slashes.
- * Literal text, a whole literal segment or the suffix after a param name, is
- * encoded with {@link encodeSegment} and then regex-escaped
- * ({@link import('@orkestrel/contract').escapeRegExp}), so `/café` matches the
- * encoded pathname `/caf%C3%A9` a request carries and `/files/:name.json`
- * matches the `.` literally apart from the param. The regex is anchored
- * (`^…$`), so it matches the whole encoded pathname, not a prefix. A request
- * pathname is compared as it arrives: `/us%65rs` does not match `/users`.
+ * The pattern is encoded with {@link encodePath} first, and literal text — a whole
+ * literal segment or the suffix after a param name — is then regex-escaped
+ * ({@link import('@orkestrel/contract').escapeRegExp}), so `/files/:name.json`
+ * matches the `.` literally apart from the param. The regex is anchored (`^…$`)
+ * and reads canonical text: {@link matchPath} and the `Router` encode the request
+ * text with the same function, so `/café` matches `/café` and `/caf%C3%A9`. Request
+ * text is encoded and never decoded, so `/us%65rs` does not match `/users`.
  *
- * Registration refuses four shapes with a `ContractError`: a wildcard segment
+ * Registration refuses five shapes with a `ContractError`: a pattern holding `\`,
+ * tab, line feed, or carriage return anywhere (`pattern`, with a `limit` naming each
+ * as `U+XXXX`, its index, and the escape to write instead), a wildcard segment
  * anywhere but last (`placement`), a final `*name` followed by more text
  * (`pattern`), a param or wildcard named for an `Object.prototype` property
  * ({@link import('./constants.js').PROTOTYPE_KEYS}, `literal`), and a name used
@@ -90,16 +101,19 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * `^/$` and `''` stays `^$`.
  *
  * `sensitive` (default `true`) controls case folding: `false` adds the `i`
- * regex flag, so `/Users` matches `/users`. The pattern's own casing is never
- * altered — only the matching behavior.
+ * regex flag over canonical text, which is ASCII, so it folds the letters A to Z
+ * with a to z, in literal text and in escape hex, and no other letter: `/Users`
+ * matches `/users`, while `/CAFÉ` misses `/café`. The pattern's own casing is
+ * never altered — only the matching behavior.
  *
  * @param path - The route path pattern (for example `/users/:id`, `/files/*rest`)
- * @param sensitive - If `true`, matching is case-sensitive; if `false`, case is
- *   folded during matching. Default: `true`
+ * @param sensitive - If `true`, matching is case-sensitive; if `false`, ASCII
+ *   letters fold during matching. Default: `true`
  * @returns The {@link CompiledPath} — its `regex`, ordered `params`, and `specificity`
- * @throws {@link import('@orkestrel/contract').ContractError} Thrown when a
- *   `*name` wildcard segment is not the FINAL segment or carries a suffix, or
- *   when a param name is a prototype key or repeats
+ * @throws {@link import('@orkestrel/contract').ContractError} Thrown when the
+ *   pattern holds `\`, tab, line feed, or carriage return, when a `*name`
+ *   wildcard segment is not the FINAL segment or carries a suffix, or when a
+ *   param name is a prototype key or repeats
  *
  * @example
  * ```ts
@@ -114,7 +128,23 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * ```
  */
 export function compilePath(path: string, sensitive = true): CompiledPath {
-	// Normalize ONE trailing slash off the pattern so `/users/` compiles like `/users`
+	const refused = [...path].flatMap((char, index) => {
+		const hex = char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')
+		return PATH_REFUSED_SET.has(char) ? [`U+00${hex} at ${index} (write %${hex})`] : []
+	})
+	if (refused.length > 0)
+		throw new ContractError(
+			'a route path must hold no backslash, tab, line feed, or carriage return',
+			{
+				code: 'pattern',
+				context: {
+					path: ['path'],
+					limit: `no ${refused.join(', ')}`,
+					received: preview(path),
+				},
+			},
+		)
+	// Encode, then fold ONE trailing slash off the pattern so `/users/` compiles like `/users`
 	// — except the root `/` (and the empty pattern), which must keep matching `/` / `''`.
 	const normalized = canonicalizePath(path)
 	const segments = normalized.split('/')
@@ -143,10 +173,10 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 		if (tier === TIER_WILDCARD) return { pattern: '(.+)', param: segment.slice(1) }
 		if (tier === TIER_PARAM) {
 			const name = /^:([A-Za-z_]\w*)/.exec(segment)?.[1] ?? ''
-			const literal = encodeSegment(segment.slice(1 + name.length))
+			const literal = segment.slice(1 + name.length)
 			return { pattern: `([^/]+)${escapeRegExp(literal)}`, param: name }
 		}
-		return { pattern: escapeRegExp(encodeSegment(segment)) }
+		return { pattern: escapeRegExp(segment) }
 	})
 	const pattern = compiledSegments.map((segment) => segment.pattern).join('/')
 	const params = compiledSegments.flatMap((segment) =>
@@ -185,31 +215,40 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 }
 
 /**
- * Encodes the literal text of one path segment the way the WHATWG URL parser writes it
- * into a pathname.
+ * Encodes path text, raw or already encoded, into the canonical form the router compares:
+ * each member of the path percent-encode set becomes its UTF-8 percent-escapes.
  *
  * @remarks
- * Runs the text through a `URL` pathname setter, so a code point in the URL path
- * percent-encode set (a space, a non-ASCII character, `?`, `#`, and the others the
- * parser encodes) becomes its UTF-8 percent-escape, and every other character stays as
- * written, an existing `%` included. A literal compiled from the result compares with
- * the encoded `URL.pathname` a request carries. The text must hold no `/`.
+ * Reads its own table, {@link import('./constants.js').PATH_ENCODE_SET}, and never the host's
+ * `URL` parser, so every host gives one text. A C0 control, U+0020, `"`, `#`, `<`, `>`, `?`,
+ * `^`, `` ` ``, `{`, `}`, U+007F, and every greater code point become uppercase-hex UTF-8
+ * escapes, and a lone surrogate encodes as U+FFFD (`%EF%BF%BD`). Every other code point stays
+ * as written: `/`, `\`, `|`, `[`, `]`, an existing escape such as `%65` (hex case included),
+ * and a `%` that opens no escape, which never becomes `%25`. Nothing is decoded, so `%65`
+ * stays apart from `e`. Total, idempotent, and linear in the length of the text.
  *
- * @param text - The literal text of one segment
- * @returns The text as it appears in an encoded pathname
+ * @param text - Path text, a segment or a whole path
+ * @returns The canonical text
  *
  * @example
  * ```ts
- * encodeSegment('café') // 'caf%C3%A9'
- * encodeSegment('a b') // 'a%20b'
- * encodeSegment('report.json') // 'report.json'
+ * encodePath('/café/a b') // '/caf%C3%A9/a%20b'
+ * encodePath('/^w') // '/%5Ew'
+ * encodePath('/caf%C3%A9') // '/caf%C3%A9' — already canonical
+ * encodePath('/100%') // '/100%'
  * ```
  */
-export function encodeSegment(text: string): string {
-	const url = new URL('http://localhost/')
-	// The leading `_` keeps a text of `.` or `..` from reading as a dot segment.
-	url.pathname = `/_${text}`
-	return url.pathname.slice(2)
+export function encodePath(text: string): string {
+	if (!PATH_ENCODE_PATTERN.test(text)) return text
+	return [...text]
+		.map((char) =>
+			PATH_ENCODE_PATTERN.test(char)
+				? [...new TextEncoder().encode(char)]
+						.map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`)
+						.join('')
+				: char,
+		)
+		.join('')
 }
 
 /**
@@ -263,7 +302,8 @@ export function decodeParam(value: string): string {
  * pathname, or `undefined` when the pathname does not match.
  *
  * @remarks
- * Runs the {@link CompiledPath} `regex` against `pathname` (a single `exec`); a
+ * Encodes `pathname` with {@link encodePath}, so raw and encoded path text read
+ * alike, then runs the {@link CompiledPath} `regex` against it (a single `exec`); a
  * miss returns `undefined`. On a hit it walks `params` POSITIONALLY — the
  * `n`-th param name pairs with the `n`-th capture group — and URL-decodes each
  * value with {@link decodeParam}. Returns a frozen `name → value` record (empty
@@ -272,7 +312,7 @@ export function decodeParam(value: string): string {
  * maps a capture to a file path must contain it.
  *
  * @param compiled - The {@link CompiledPath} from {@link compilePath}
- * @param pathname - The concrete request pathname to match (for example `/users/7`)
+ * @param pathname - The request path text to match, raw or encoded (for example `/users/7`)
  * @returns The decoded params on a hit, or `undefined` on a miss
  *
  * @example
@@ -287,7 +327,7 @@ export function matchPath(
 	compiled: CompiledPath,
 	pathname: string,
 ): Readonly<Record<string, string>> | undefined {
-	const result = compiled.regex.exec(pathname)
+	const result = compiled.regex.exec(encodePath(pathname))
 	if (result === null) return undefined
 	const params = compiled.params.entries().flatMap(([index, name]) => {
 		const value = result[index + 1]
@@ -363,7 +403,7 @@ export function computeSpecificity(path: string): readonly SegmentRank[] {
 		const tier = classifySegment(segment, index === segments.length - 1)
 		if (tier === TIER_WILDCARD) return { tier, length: 0 }
 		const literal = tier === TIER_PARAM ? segment.replace(/^:[A-Za-z_]\w*/, '') : segment
-		return { tier, length: encodeSegment(literal).length }
+		return { tier, length: literal.length }
 	})
 }
 

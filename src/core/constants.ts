@@ -4,6 +4,8 @@
 //  and `export`ed per the centralized-file rule.
 // ============================================================================
 
+import { escapeRegExp } from '@orkestrel/contract'
+
 /**
  * Lists the HTTP methods a {@link import('./types.js').DispatcherInterface} registers
  * routes under, in canonical order — a frozen literal tuple, and the single source the
@@ -53,6 +55,62 @@ export const METHOD_LIST = Object.freeze([
  * ```
  */
 export const HTTP_METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
+
+/**
+ * Holds the printable ASCII members of the URL Standard's path percent-encode set — with
+ * every C0 control, U+007F, and every greater code point, the code points `encodePath`
+ * writes as UTF-8 percent-escapes.
+ *
+ * @remarks
+ * Transcribed from URL Standard § 1.3, Percent-encoded bytes (Living Standard, Last Updated
+ * 2026-11-14, commit snapshot `47721bbd2d518f249ae63d08b81514c2d13546d8`): the C0 control
+ * percent-encode set is the C0 controls and every code point greater than U+007E, the query
+ * set adds U+0020, `"`, `#`, `<`, and `>`, and the path set adds `?`, `^`, `` ` ``, `{`, and
+ * `}`. The router reads this table, never the host's `URL` parser, so every host compares
+ * one text.
+ *
+ * @example
+ * ```ts
+ * PATH_ENCODE_SET.has('^') // true
+ * PATH_ENCODE_SET.has('|') // false
+ * ```
+ */
+export const PATH_ENCODE_SET: ReadonlySet<string> = Object.freeze(
+	new Set<string>([' ', '"', '#', '<', '>', '?', '^', '`', '{', '}']),
+)
+
+/**
+ * Matches one code point `encodePath` writes as escapes: a C0 control, a member of
+ * {@link PATH_ENCODE_SET}, U+007F, or any greater code point.
+ *
+ * @remarks
+ * Built from {@link PATH_ENCODE_SET} when the module loads, as a non-global `u`-flag character
+ * class, so a lone surrogate matches as one code point and `test` keeps no state.
+ *
+ * @example
+ * ```ts
+ * PATH_ENCODE_PATTERN.test('/café') // true
+ * PATH_ENCODE_PATTERN.test('/users') // false
+ * ```
+ */
+export const PATH_ENCODE_PATTERN: RegExp = Object.freeze(
+	new RegExp(`[\\0-\\x1F\\x7F-\\u{10FFFF}${escapeRegExp([...PATH_ENCODE_SET].join(''))}]`, 'u'),
+)
+
+/**
+ * Holds the code points a route pattern must not hold: `\`, tab, line feed, and carriage
+ * return, which a URL parser reads as a separator or deletes, so the pattern would name a
+ * path other than its text.
+ *
+ * @example
+ * ```ts
+ * PATH_REFUSED_SET.has('\\') // true
+ * PATH_REFUSED_SET.has('\u000B') // false
+ * ```
+ */
+export const PATH_REFUSED_SET: ReadonlySet<string> = Object.freeze(
+	new Set<string>(['\\', '\t', '\n', '\r']),
+)
 
 /**
  * Holds the own property names of `Object.prototype` — the names `compilePath` refuses as

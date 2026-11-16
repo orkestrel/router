@@ -2,7 +2,6 @@ import type { DispatchResult, Method, RouteHandler } from '../src/core/types.js'
 import type { RecorderInterface } from '@orkestrel/test'
 import { attempt, seededRandom } from '@orkestrel/contract'
 import { afterEach, expectTypeOf, vi } from 'vitest'
-import { METHOD_LIST } from '../src/core/constants.js'
 
 // ── Environment-agnostic base setup ───────────────────────────────────────────
 //
@@ -107,8 +106,9 @@ export function matchTag(tag: string): (meta: MethodMeta) => boolean {
 // ── Router path matrix ────────────────────────────────────────────────────────
 //
 // The tables and the reference matcher `tests/src/core/integration.test.ts` drives. The
-// reference reads the declared path grammar segment by segment and compiles no regular
-// expression, so it disagrees with `compilePath` wherever the two grammars differ.
+// reference reads the declared path grammar segment by segment, compiles no regular
+// expression, and holds its own encode set, refusal list, and method list, so it disagrees
+// with `compilePath`, the host `URL` parser, and `src/core` wherever their grammars differ.
 
 /** Names one segment of a route pattern under the declared path grammar. */
 export type ReferenceSegment =
@@ -162,8 +162,8 @@ export const PROTOTYPE_NAMES: readonly string[] = Object.freeze(
 )
 
 /**
- * Lists the printable ASCII characters the installed WHATWG URL parser percent-encodes in a
- * path. Every C0 control, DEL, and every non-ASCII code point is encoded as well.
+ * Lists the printable ASCII members of the declared path percent-encode set (URL Standard
+ * § 1.3). Every C0 control, DEL, and every non-ASCII code point is encoded as well.
  */
 export const PATH_ENCODED: readonly string[] = Object.freeze([
 	' ',
@@ -172,13 +172,131 @@ export const PATH_ENCODED: readonly string[] = Object.freeze([
 	'<',
 	'>',
 	'?',
+	'^',
 	'`',
 	'{',
 	'}',
 ])
 
-/** Lists the characters the WHATWG URL parser strips from a URL before it parses it. */
-export const PATH_STRIPPED: readonly string[] = Object.freeze(['\t', '\n', '\r'])
+/** Lists the code points a pattern must not hold: `\`, tab, line feed, and carriage return. */
+export const PATH_REFUSED: readonly string[] = Object.freeze(['\\', '\t', '\n', '\r'])
+
+/** Lists hand-declared encoder pairs: raw text and the canonical text it must encode to. */
+export const ENCODER_PAIRS: ReadonlyArray<readonly [text: string, encoded: string]> = Object.freeze(
+	[
+		['é', '%C3%A9'],
+		['日', '%E6%97%A5'],
+		['\u{1F600}', '%F0%9F%98%80'],
+		['\u0000', '%00'],
+		['\u000B', '%0B'],
+		['\u001F', '%1F'],
+		['\u007F', '%7F'],
+		['\uD800', '%EF%BF%BD'],
+		['\uDC00x', '%EF%BF%BDx'],
+		[' ', '%20'],
+		['"', '%22'],
+		['#', '%23'],
+		['<', '%3C'],
+		['>', '%3E'],
+		['?', '%3F'],
+		['^', '%5E'],
+		['`', '%60'],
+		['{', '%7B'],
+		['}', '%7D'],
+		['%41', '%41'],
+		['%c3%a9', '%c3%a9'],
+		['100%', '100%'],
+		['%zz', '%zz'],
+		['%', '%'],
+		['a/b', 'a/b'],
+		['a\\b', 'a\\b'],
+		['|[]$()+*.:@!~', '|[]$()+*.:@!~'],
+		['/café/a b', '/caf%C3%A9/a%20b'],
+		['', ''],
+	],
+)
+
+/** Lists the code points the seeded encoder differential draws from. */
+export const ENCODER_ALPHABET: readonly string[] = Object.freeze([
+	'%',
+	'0',
+	'9',
+	'A',
+	'c',
+	'F',
+	'z',
+	'/',
+	'\\',
+	'|',
+	'.',
+	...PATH_ENCODED,
+	'\u0000',
+	'\t',
+	'\n',
+	'\r',
+	'\u007F',
+	'é',
+	'É',
+	'日',
+	'\u{1F600}',
+	'\uD800',
+	'\uDFFF',
+])
+
+/**
+ * Builds the seeded text samples of the encoder differential: strings of up to 12 code points
+ * drawn from {@link ENCODER_ALPHABET}.
+ *
+ * @param seed - The seed for the draw
+ * @returns The samples
+ */
+export function buildEncoderSamples(seed: number): readonly string[] {
+	const random = seededRandom(seed)
+	return Array.from({ length: 2000 }, () =>
+		Array.from(
+			{ length: Math.floor(random() * 13) },
+			() => ENCODER_ALPHABET[Math.floor(random() * ENCODER_ALPHABET.length)] ?? '',
+		).join(''),
+	)
+}
+
+/**
+ * Lists the declared case rows against the pattern `/café`: the request text, whether it hits
+ * under `sensitive: false`, and whether it hits under `sensitive: true`.
+ */
+export const CASE_ROWS: ReadonlyArray<readonly [text: string, folded: boolean, exact: boolean]> =
+	Object.freeze([
+		['/CAFÉ', false, false],
+		['/CAF%C3%89', false, false],
+		['/CAFé', true, false],
+		['/CAF%C3%A9', true, false],
+		['/caf%c3%a9', true, false],
+		['/café', true, true],
+		['/caf%C3%A9', true, true],
+	])
+
+/**
+ * Describes the code points of a pattern the grammar refuses, as `U+XXXX` labels in order.
+ *
+ * @param path - A raw route pattern
+ * @returns One label per refused code point the pattern holds
+ */
+export function describeRefusedPoints(path: string): readonly string[] {
+	return [...path]
+		.filter((char) => PATH_REFUSED.includes(char))
+		.map((char) => `U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`)
+}
+
+/** Lists the methods the declared dispatch semantics register and answer. */
+export const REFERENCE_METHODS: readonly string[] = Object.freeze([
+	'GET',
+	'POST',
+	'PUT',
+	'PATCH',
+	'DELETE',
+	'HEAD',
+	'OPTIONS',
+])
 
 /** Lists the request methods every matrix request is sent with: registered, derived, and unknown. */
 export const MATRIX_METHODS: readonly string[] = Object.freeze([
@@ -259,12 +377,17 @@ export const MATRIX_TABLES: readonly MatrixTable[] = Object.freeze([
 			{ method: 'GET', path: '/w/*b' },
 			{ method: 'GET', path: '/m/:x/:y.json' },
 			{ method: 'GET', path: '/m/:x.v/:y' },
+			{ method: 'GET', path: '/e/:aé' },
+			{ method: 'GET', path: '/e/:b%A9' },
 		],
-		samples: ['/m/a.v/b.json', '/t/.js'],
+		samples: ['/m/a.v/b.json', '/t/.js', '/e/report%C3%A9'],
 	},
 ] satisfies readonly MatrixTable[])
 
-/** Lists route patterns the grammar refuses: a suffixed or non-final wildcard and a bad param name. */
+/**
+ * Lists route patterns the grammar refuses: a suffixed or non-final wildcard, a bad param name,
+ * and a refused code point in a literal or a suffix.
+ */
 export const REFUSED_PATHS: readonly string[] = Object.freeze([
 	'/files/*rest.json',
 	'/files/*rest/more',
@@ -273,6 +396,15 @@ export const REFUSED_PATHS: readonly string[] = Object.freeze([
 	'/x/:toString.json',
 	'/a/:id/b/:id',
 	'/a/:id/*id',
+	'/a\\b',
+	'/x\\y/:p',
+	'/x/a\\..',
+	'/a\tb',
+	'/a\nb',
+	'/a\rb',
+	'/x/:p.\t',
+	'/x/:p.\n',
+	'/x/:p.\r',
 ])
 
 /** Lists the accepted neighbours of each refused pattern, so the refusal stays narrow. */
@@ -284,6 +416,13 @@ export const ACCEPTED_PATHS: readonly string[] = Object.freeze([
 	'/x/:__proto',
 	'/a/:id/b/:other',
 	'/a/:id/*rest',
+	'/a%5Cb',
+	'/a%09b',
+	'/a|b',
+	'/a\u000Bb',
+	'/a\u007Fb',
+	'/q?a#b',
+	'/100%',
 ])
 
 /**
@@ -343,6 +482,7 @@ export function extractSegment(part: string, final: boolean): ReferenceSegment |
  * @returns The segments of the canonical pattern, or `undefined` when the grammar refuses it
  */
 export function parseReference(path: string): readonly ReferenceSegment[] | undefined {
+	if ([...path].some((char) => PATH_REFUSED.includes(char))) return undefined
 	const canonical = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 	const parts = canonical.split('/')
 	const extracted = parts.map((part, index) => extractSegment(part, index === parts.length - 1))
@@ -354,18 +494,38 @@ export function parseReference(path: string): readonly ReferenceSegment[] | unde
 }
 
 /**
- * Encodes text the way the installed WHATWG URL parser writes it into a path.
+ * Computes the UTF-8 bytes of one code point, writing a lone surrogate as U+FFFD.
  *
- * @param text - Raw text with no `/`
- * @returns The text with each code point of the path percent-encode set written as UTF-8 escapes
+ * @param code - The code point
+ * @returns Its UTF-8 bytes
+ */
+export function computeReferenceBytes(code: number): readonly number[] {
+	const point = code >= 0xd800 && code <= 0xdfff ? 0xfffd : code
+	if (point < 0x80) return [point]
+	if (point < 0x800) return [0xc0 | (point >> 6), 0x80 | (point & 0x3f)]
+	if (point < 0x10000)
+		return [0xe0 | (point >> 12), 0x80 | ((point >> 6) & 0x3f), 0x80 | (point & 0x3f)]
+	return [
+		0xf0 | (point >> 18),
+		0x80 | ((point >> 12) & 0x3f),
+		0x80 | ((point >> 6) & 0x3f),
+		0x80 | (point & 0x3f),
+	]
+}
+
+/**
+ * Encodes text by the declared path percent-encode set: every member becomes its UTF-8
+ * escapes in uppercase hex, and every other code point, `%` included, stays as written.
+ *
+ * @param text - Raw text
+ * @returns The canonical text
  */
 export function encodeReference(text: string): string {
 	return [...text]
-		.filter((char) => !PATH_STRIPPED.includes(char))
 		.map((char) => {
 			const code = char.codePointAt(0) ?? 0
 			if (code > 0x1f && code < 0x7f && !PATH_ENCODED.includes(char)) return char
-			return [...new TextEncoder().encode(char)]
+			return computeReferenceBytes(code)
 				.map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`)
 				.join('')
 		})
@@ -470,19 +630,21 @@ export function matchReferenceParts(
 }
 
 /**
- * Matches a pattern against a pathname. One trailing slash on the pathname is optional, except
- * against the root pattern, and the pathname as sent is tried before the folded one.
+ * Matches a pattern against path text, raw or encoded, after encoding the text by the
+ * declared set. One trailing slash is optional, except against the root pattern, and the text
+ * as sent is tried before the folded one.
  *
  * @param segments - The pattern segments
- * @param pathname - The encoded request pathname
+ * @param text - The request path text
  * @param sensitive - If `true`, literal text compares exactly; if `false`, ASCII case folds
  * @returns The decoded params, or `undefined` on a miss
  */
 export function matchReference(
 	segments: readonly ReferenceSegment[],
-	pathname: string,
+	text: string,
 	sensitive: boolean,
 ): Readonly<Record<string, string>> | undefined {
+	const pathname = encodeReferencePath(text)
 	const root =
 		segments.length === 2 &&
 		segments.every((segment) => segment.shape === 'literal' && segment.text === '')
@@ -603,7 +765,7 @@ export function dispatchReference(
 	pathname: string,
 	sensitive: boolean,
 ): MatrixOutcome {
-	const known = METHOD_LIST.find((entry) => entry === method)
+	const known = REFERENCE_METHODS.find((entry) => entry === method)
 	const own = routes.filter((route) => route.method === known)
 	const hit = known === undefined ? undefined : selectReference(own, pathname, sensitive)
 	if (hit !== undefined)
@@ -686,6 +848,24 @@ export function buildRequestForms(raw: string): readonly MatrixRequest[] {
 export function buildMatrixRequests(table: MatrixTable): readonly MatrixRequest[] {
 	const raws = [...table.routes.map((route) => buildSamplePath(route.path)), ...table.samples]
 	const requests = raws.flatMap((raw) => buildRequestForms(raw))
+	return [...new Map(requests.map((request) => [request.path, request])).values()]
+}
+
+/**
+ * Builds every raw text a table hands to `Router.match` directly: each route's sample and each
+ * extra sample as written, slashed, upper case, and lower case, with no encoding.
+ *
+ * @param table - The matrix table
+ * @returns The text requests, with no two sharing a path
+ */
+export function buildTextRequests(table: MatrixTable): readonly MatrixRequest[] {
+	const raws = [...table.routes.map((route) => buildSamplePath(route.path)), ...table.samples]
+	const requests = raws.flatMap((raw) => [
+		{ form: 'raw', path: raw },
+		{ form: 'raw slashed', path: `${raw}/` },
+		{ form: 'raw upper', path: raw.toUpperCase() },
+		{ form: 'raw lower', path: raw.toLowerCase() },
+	])
 	return [...new Map(requests.map((request) => [request.path, request])).values()]
 }
 

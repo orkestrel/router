@@ -10,7 +10,7 @@ import {
 	computeDispatchKey,
 	decodeParam,
 	defineRoute,
-	encodeSegment,
+	encodePath,
 	joinPaths,
 	matchPath,
 	computeSpecificity,
@@ -344,25 +344,30 @@ describe('compareSpecificity', () => {
 	})
 })
 
-describe('encodeSegment', () => {
-	it('percent-encodes a non-ASCII character, a space, and the URL path set', () => {
-		expect(encodeSegment('café')).toBe('caf%C3%A9')
-		expect(encodeSegment('a b')).toBe('a%20b')
-		expect(encodeSegment('q?a#b')).toBe('q%3Fa%23b')
-		expect(encodeSegment('{c}')).toBe('%7Bc%7D')
+describe('encodePath', () => {
+	it('percent-encodes a non-ASCII character, a space, and the path percent-encode set', () => {
+		expect(encodePath('café')).toBe('caf%C3%A9')
+		expect(encodePath('a b')).toBe('a%20b')
+		expect(encodePath('q?a#b')).toBe('q%3Fa%23b')
+		expect(encodePath('{c}^')).toBe('%7Bc%7D%5E')
 	})
 
-	it('leaves path-safe text, regex metacharacters, and an existing `%` unchanged', () => {
-		expect(encodeSegment('report.json')).toBe('report.json')
-		expect(encodeSegment('(x)|[y]+$')).toBe('(x)|[y]+$')
-		expect(encodeSegment('100%')).toBe('100%')
-		expect(encodeSegment('us%65rs')).toBe('us%65rs')
+	it('leaves path-safe text, regex metacharacters, `\\`, and an existing `%` unchanged', () => {
+		expect(encodePath('report.json')).toBe('report.json')
+		expect(encodePath('(x)|[y]+$')).toBe('(x)|[y]+$')
+		expect(encodePath('a\\b')).toBe('a\\b')
+		expect(encodePath('100%')).toBe('100%')
+		expect(encodePath('us%65rs')).toBe('us%65rs')
 	})
 
-	it('keeps a text of `.` or `..` instead of reading it as a dot segment', () => {
-		expect(encodeSegment('.')).toBe('.')
-		expect(encodeSegment('..')).toBe('..')
-		expect(encodeSegment('')).toBe('')
+	it('keeps dot segments and slashes, so a whole path encodes as its segments do', () => {
+		expect(encodePath('/a/../b/./c')).toBe('/a/../b/./c')
+		expect(encodePath('/café/a b')).toBe('/caf%C3%A9/a%20b')
+		expect(encodePath('')).toBe('')
+	})
+
+	it('is idempotent', () => {
+		expect(encodePath(encodePath('/café/{c} ^'))).toBe(encodePath('/café/{c} ^'))
 	})
 })
 

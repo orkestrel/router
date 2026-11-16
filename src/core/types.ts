@@ -254,7 +254,7 @@ export interface SegmentRank {
  *
  * @remarks
  * The once-per-path compile output of `compilePath` (the path compiler in `helpers.ts`):
- * `regex` is anchored (`^…$`) and matches the WHOLE encoded pathname (with an
+ * `regex` is anchored (`^…$`) and matches the WHOLE canonical path text `encodePath` writes (with an
  * optional trailing slash), `params` lists each captured segment's
  * name (`:name` or the final `*name`) in order, so a `regex.exec` result's
  * capture groups line up with `params` positionally (the walk `matchPath`
@@ -339,7 +339,8 @@ export type AnswerHandler<Meta> = (meta: Meta) => boolean
  *   path compiled once), equivalent to a bare `createRouter()` followed by
  *   `add(entries)`. Omitted ⇒ an empty router.
  * - `sensitive` — case-sensitive path matching (default `true`). Set
- *   `false` to fold case during matching (`/Users` matches `/users`);
+ *   `false` to fold the ASCII letters A to Z with a to z during matching
+ *   (`/Users` matches `/users`; `/CAFÉ` still misses `/café`);
  *   registered patterns are never case-folded in storage, only in matching.
  * - `key` — an optional dedup identity function computed per entry
  *   (`RouteEntry<Meta> → string`). When provided, registering an entry whose
@@ -356,8 +357,8 @@ export interface RouterOptions<Meta> {
 /**
  * Represents the path-matching + registry engine contract (the behavioral-interface
  * role for the one-class-per-file `Router`). Registers `{ path, meta, name? }`
- * entries (compiling each path once) and resolves an encoded pathname to the most
- * specific matching entry by the segment-by-segment precedence `compareSpecificity`
+ * entries (compiling each path once) and resolves path text, raw or encoded, to the most
+ * specific matching entry by the per-segment precedence `compareSpecificity`
  * defines, a remaining tie going to the earlier registration. The shared engine both
  * the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose.
  *
@@ -377,7 +378,8 @@ export interface RouterInterface<Meta> {
 	 * @remarks
 	 * When the router was constructed with a `key` option, an entry whose key already
 	 * exists replaces the prior one in place; otherwise every entry is kept, even a
-	 * duplicate path.
+	 * duplicate path. A batch admits every entry before it registers any, so a refused
+	 * batch registers nothing.
 	 */
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
@@ -639,7 +641,8 @@ export interface DispatcherInterface<TState = undefined> {
 	 * @remarks
 	 * A registration is malformed when its path is not `/`-prefixed, its handler is not
 	 * a function, or its method sits outside {@link import('./constants.js').HTTP_METHODS}.
-	 * Path validation is delegated to the underlying router's own guard.
+	 * Path validation is delegated to the underlying router's own guard. A batch admits
+	 * every input before it registers any, so a refused batch registers nothing.
 	 */
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
@@ -658,7 +661,7 @@ export interface DispatcherInterface<TState = undefined> {
 	 * @remarks
 	 * A derived `HEAD` runs the matching `GET` handler, cancels its response body, and
 	 * answers with the status and headers alone, and a derived `OPTIONS` answers with the
-	 * `Allow` set. Matching reads the request URL's encoded pathname. Emits `match` or
+	 * `Allow` set. Matching reads the request URL's pathname through `encodePath`. Emits `match` or
 	 * `miss` accordingly. A handler throw propagates uncaught.
 	 */
 	handle(request: Request, state: TState): Promise<Response>

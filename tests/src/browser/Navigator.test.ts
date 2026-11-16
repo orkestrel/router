@@ -6,6 +6,8 @@ import { ContractError } from '@orkestrel/contract'
 import { createNavigator, Navigator } from '../../../src/browser/index.js'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import {
+	DOOR_PATHS,
+	buildDoorRoutes,
 	createAnchor,
 	startNavigator,
 	drainNavigators,
@@ -632,6 +634,41 @@ describe('Navigator — match(path) is a pure lookup', () => {
 		navigators.push(navigator)
 		expect(navigator.match('/nope')).toBeUndefined()
 	})
+})
+
+describe('Navigator — every door reaches an encoded literal (F9)', () => {
+	for (const path of DOOR_PATHS) {
+		it(`resolves ${path} through history navigate`, () => {
+			const navigator = startNavigator(navigators, buildDoorRoutes(path), { history: true })
+			navigator.navigate(path)
+			expect(navigator.active?.path).toBe(path)
+		})
+
+		it(`resolves ${path} through hash navigate`, async () => {
+			const navigator = startNavigator(navigators, buildDoorRoutes(path))
+			navigator.navigate(path)
+			await waitForDelay()
+			expect(navigator.active?.path).toBe(path)
+		})
+
+		it(`resolves ${path} as the configured fallback`, async () => {
+			await setHash('#/nowhere')
+			const navigator = startNavigator(navigators, buildDoorRoutes('/plain'), { fallback: path })
+			expect(navigator.active?.path).toBe(path)
+		})
+
+		it(`resolves ${path} as the default fallback`, async () => {
+			await setHash('#/nowhere')
+			const navigator = startNavigator(navigators, buildDoorRoutes(path))
+			expect(navigator.active?.path).toBe(path)
+		})
+
+		it(`matches ${path} as raw text and as the encoded pathname`, () => {
+			const navigator = startNavigator(navigators, buildDoorRoutes(path))
+			const encoded = new URL(path, window.location.origin).pathname
+			expect([navigator.match(path)?.path, navigator.match(encoded)?.path]).toEqual([path, path])
+		})
+	}
 })
 
 describe('Navigator — construction guards', () => {
