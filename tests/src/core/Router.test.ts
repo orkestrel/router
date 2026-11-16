@@ -378,10 +378,10 @@ describe('Router — adversarial hostile pathnames', () => {
 		expect(router.match(`/files/${long}`)?.params).toEqual({ name: long })
 	})
 
-	it('matches a unicode path segment as a literal', () => {
+	it('matches a unicode path segment as a literal through its encoded pathname form', () => {
 		const router = new Router<PageMeta>()
 		router.add({ path: '/café', meta: { page: 'cafe' } })
-		expect(router.match('/café')?.meta.page).toBe('cafe')
+		expect(router.match('/caf%C3%A9')?.meta.page).toBe('cafe')
 	})
 
 	it('captures a unicode value in a :param segment', () => {

@@ -55,6 +55,24 @@ export const METHOD_LIST = Object.freeze([
 export const HTTP_METHODS: ReadonlySet<string> = Object.freeze(new Set<string>(METHOD_LIST))
 
 /**
+ * Holds the own property names of `Object.prototype` — the names `compilePath` refuses as
+ * a param name, so a params record never shadows or drops an inherited key.
+ *
+ * @remarks
+ * Read once when the module loads, from `Object.getOwnPropertyNames(Object.prototype)`:
+ * `__proto__`, `constructor`, `hasOwnProperty`, `toString`, `valueOf`, and the rest.
+ *
+ * @example
+ * ```ts
+ * PROTOTYPE_KEYS.has('__proto__') // true
+ * PROTOTYPE_KEYS.has('id') // false
+ * ```
+ */
+export const PROTOTYPE_KEYS: ReadonlySet<string> = Object.freeze(
+	new Set<string>(Object.getOwnPropertyNames(Object.prototype)),
+)
+
+/**
  * Names the specificity tier for a **literal** path segment (`/users`) — the highest
  * tier, always outranking a param or wildcard segment at the same position.
  *

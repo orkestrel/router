@@ -7,13 +7,13 @@ import type {
 	RouterMatch,
 	RouterOptions,
 } from './types.js'
-import { ContractError, isArray, isString, preview } from '@orkestrel/contract'
-import { compareSpecificity, compilePath, matchPath } from './helpers.js'
+import { ContractError, isString, preview } from '@orkestrel/contract'
+import { collectInputs, compareSpecificity, compilePath, matchPath } from './helpers.js'
 import { Group } from './Group.js'
 
 /**
  * Represents the path-matching + registry engine — registers `{ path, meta, name? }`
- * entries (compiling each path once) and resolves a concrete pathname to the most
+ * entries (compiling each path once) and resolves an encoded pathname to the most
  * specific matching entry. The shared machine both the `Navigator` (browser) and
  * the `Dispatcher` (core, method-dimensioned) compose.
  *
@@ -24,12 +24,13 @@ import { Group } from './Group.js'
  *   `path` — `isString` plus a leading `/` — and throws a `ContractError` on a
  *   malformed registration; `match` stays guard-free (the hot path).
  * - **Compile-once.** Each path is compiled exactly once at registration into
- *   a parallel `#compiled` array, so `match` runs only a cached `exec` per
- *   candidate.
+ *   one record beside its entry, so `match` runs only a cached regex test per
+ *   candidate, compares the precomputed specificity vectors, and decodes params
+ *   for the winner alone. A remaining tie keeps the earlier registration.
  * - **Dedup through `key`.** When `options.key` is set, an entry whose computed
- *   key already exists REPLACES the prior one IN PLACE (both the `#entries`
- *   and `#compiled` arrays, at the existing index) — last write wins, no
- *   engine rebuild. Omitted ⇒ every entry is kept, even duplicate paths.
+ *   key already exists REPLACES the prior record IN PLACE (at the existing
+ *   index) — last write wins, no engine rebuild. Omitted ⇒ every entry is kept,
+ *   even duplicate paths.
  * - **Groups.** `group(prefix)` returns a {@link GroupInterface} that composes
  *   `prefix` onto every entry it registers, nesting through {@link joinPaths}.
  *
@@ -41,8 +42,8 @@ import { Group } from './Group.js'
  * ```
  */
 export class Router<Meta> implements RouterInterface<Meta> {
-	readonly #entries: Array<RouteEntry<Meta>> = []
-	readonly #compiled: CompiledPath[] = []
+	readonly #records: Array<{ readonly entry: RouteEntry<Meta>; readonly compiled: CompiledPath }> =
+		[]
 	readonly #sensitive: boolean
 	readonly #key: ((entry: RouteEntry<Meta>) => string) | undefined
 	readonly #index: Map<string, number> = new Map()
@@ -54,54 +55,43 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	}
 
 	get count(): number {
-		return this.#entries.length
+		return this.#records.length
 	}
 
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
 	add(input: RouteEntry<Meta> | ReadonlyArray<RouteEntry<Meta>>): void {
-		const inputs = isArray(input) ? input : [input]
-		for (const entry of inputs) this.#register(entry)
+		for (const entry of collectInputs(input)) this.#register(entry)
 	}
 
 	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined {
-		const candidates = this.#entries.entries()
-		const best = candidates.reduce<
-			readonly [RouteEntry<Meta>, RouterMatch<Meta>['params']] | undefined
-		>((selected, [index, entry]) => {
-			const compiled = this.#compiled[index]
-			if (entry === undefined || compiled === undefined) return selected
-			if (answers !== undefined && !answers(entry.meta)) return selected
-			const params = matchPath(compiled, pathname)
-			if (params === undefined) return selected
-			return selected === undefined || compareSpecificity(entry.path, selected[0].path) < 0
-				? [entry, params]
-				: selected
-		}, undefined)
-		if (best === undefined) return undefined
+		// A later record replaces the leader only when it ranks strictly higher: a tie keeps the earlier.
+		const selected = this.#records.reduce((current, record, index) => {
+			if (answers !== undefined && !answers(record.entry.meta)) return current
+			if (!record.compiled.regex.test(pathname)) return current
+			const leader = this.#records[current]
+			return leader === undefined ||
+				compareSpecificity(record.compiled.specificity, leader.compiled.specificity) < 0
+				? index
+				: current
+		}, -1)
+		const best = this.#records[selected]
+		const params = best === undefined ? undefined : matchPath(best.compiled, pathname)
+		if (best === undefined || params === undefined) return undefined
 		return {
-			path: best[0].path,
-			params: best[1],
-			meta: best[0].meta,
-			...(best[0].name === undefined ? {} : { name: best[0].name }),
+			path: best.entry.path,
+			params,
+			meta: best.entry.meta,
+			...(best.entry.name === undefined ? {} : { name: best.entry.name }),
 		}
 	}
 
 	entries(): ReadonlyArray<RouteEntry<Meta>>
 	entries(pathname: string): ReadonlyArray<RouteEntry<Meta>>
 	entries(pathname?: string): ReadonlyArray<RouteEntry<Meta>> {
-		if (pathname === undefined) return [...this.#entries]
-		return this.#entries
-			.entries()
-			.flatMap(([index, entry]) => {
-				const compiled = this.#compiled[index]
-				return entry !== undefined &&
-					compiled !== undefined &&
-					matchPath(compiled, pathname) !== undefined
-					? [entry]
-					: []
-			})
-			.toArray()
+		return this.#records
+			.filter((record) => pathname === undefined || record.compiled.regex.test(pathname))
+			.map((record) => record.entry)
 	}
 
 	group(prefix: string): GroupInterface<Meta> {
@@ -109,14 +99,11 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	}
 
 	clear(): void {
-		this.#entries.length = 0
-		this.#compiled.length = 0
+		this.#records.length = 0
 		this.#index.clear()
 	}
 
-	// Validate the registration boundary (isString + leading '/'), then either replace an
-	// existing entry IN PLACE (dedup through `#key`, last write wins) or append a new one — the
-	// engine's compile-once invariant, kept in sync across the `#entries`/`#compiled` pair.
+	// A keyed record replaces the earlier one in place (last write wins); any other record appends.
 	#register(entry: RouteEntry<Meta>): void {
 		if (!isString(entry.path))
 			throw new ContractError('a route path must be a string', {
@@ -132,21 +119,14 @@ export class Router<Meta> implements RouterInterface<Meta> {
 					received: preview(entry.path),
 				},
 			})
-		const compiled = compilePath(entry.path, this.#sensitive)
-		if (this.#key === undefined) {
-			this.#entries.push(entry)
-			this.#compiled.push(compiled)
-			return
-		}
-		const key = this.#key(entry)
-		const existing = this.#index.get(key)
+		const record = { entry, compiled: compilePath(entry.path, this.#sensitive) }
+		const key = this.#key?.(entry)
+		const existing = key === undefined ? undefined : this.#index.get(key)
 		if (existing !== undefined) {
-			this.#entries[existing] = entry
-			this.#compiled[existing] = compiled
+			this.#records[existing] = record
 			return
 		}
-		this.#index.set(key, this.#entries.length)
-		this.#entries.push(entry)
-		this.#compiled.push(compiled)
+		if (key !== undefined) this.#index.set(key, this.#records.length)
+		this.#records.push(record)
 	}
 }

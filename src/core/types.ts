@@ -233,19 +233,38 @@ export type PathParams<Path extends string> = {
 }
 
 /**
- * Represents a compiled route path — the anchored regex plus its ordered param names.
+ * Represents one segment's place in a route path's specificity vector — its tier, then the
+ * length of the literal text it carries.
+ *
+ * @remarks
+ * - `tier` — {@link import('./constants.js').TIER_LITERAL},
+ *   {@link import('./constants.js').TIER_PARAM}, or
+ *   {@link import('./constants.js').TIER_WILDCARD}.
+ * - `length` — the encoded length of the segment's literal text: the whole segment for a
+ *   literal, the suffix after the name for a param, and `0` for a wildcard.
+ */
+export interface SegmentRank {
+	readonly tier: number
+	readonly length: number
+}
+
+/**
+ * Represents a compiled route path — the anchored regex, its ordered param names, and its
+ * specificity vector.
  *
  * @remarks
  * The once-per-path compile output of `compilePath` (the path compiler in `helpers.ts`):
- * `regex` is anchored (`^…$`) and matches the WHOLE pathname (with an
- * optional trailing slash), and `params` lists each captured segment's
+ * `regex` is anchored (`^…$`) and matches the WHOLE encoded pathname (with an
+ * optional trailing slash), `params` lists each captured segment's
  * name (`:name` or the final `*name`) in order, so a `regex.exec` result's
  * capture groups line up with `params` positionally (the walk `matchPath`
- * performs). Plain data — no behavior.
+ * performs), and `specificity` holds one {@link SegmentRank} per segment. Plain data — no
+ * behavior.
  */
 export interface CompiledPath {
 	readonly regex: RegExp
 	readonly params: readonly string[]
+	readonly specificity: readonly SegmentRank[]
 }
 
 /**
@@ -337,9 +356,9 @@ export interface RouterOptions<Meta> {
 /**
  * Represents the path-matching + registry engine contract (the behavioral-interface
  * role for the one-class-per-file `Router`). Registers `{ path, meta, name? }`
- * entries (compiling each path once) and resolves a concrete pathname to the most
- * specific matching entry — a literal segment beats a param beats a wildcard at the
- * earliest differing segment, registration-order-independent. The shared engine both
+ * entries (compiling each path once) and resolves an encoded pathname to the most
+ * specific matching entry by the segment-by-segment precedence `compareSpecificity`
+ * defines, a remaining tie going to the earlier registration. The shared engine both
  * the `Navigator` (browser) and the `Dispatcher` (core, method-dimensioned) compose.
  *
  * @typeParam Meta - The opaque payload each entry carries and a match returns
@@ -531,8 +550,9 @@ export interface RouteRecord<TState> {
  * - `'matched'` — carries the winning {@link RouterMatch} (its `meta` is a
  *   {@link RouteRecord}).
  * - `'unmethoded'` — the pathname matched at least one entry but none for
- *   the requested method; `allow` is the derived `Allow` method set (from
- *   `router.entries(pathname)`).
+ *   the requested method; `allow` is the derived `Allow` method set: the
+ *   methods of `router.entries(pathname)` in registration order, then `HEAD`
+ *   when `GET` is present, then `OPTIONS`.
  * - `'unmatched'` — no registered pattern matches the pathname at all.
  */
 export type DispatchResult<TState> =
@@ -636,9 +656,10 @@ export interface DispatcherInterface<TState = undefined> {
 	 * winning handler or the `unmatched`/`unmethoded` responder.
 	 *
 	 * @remarks
-	 * A derived `HEAD` runs the matching `GET` handler with the response body stripped,
-	 * and a derived `OPTIONS` answers with the `Allow` set. Emits `match` or `miss`
-	 * accordingly. A handler throw propagates uncaught.
+	 * A derived `HEAD` runs the matching `GET` handler, cancels its response body, and
+	 * answers with the status and headers alone, and a derived `OPTIONS` answers with the
+	 * `Allow` set. Matching reads the request URL's encoded pathname. Emits `match` or
+	 * `miss` accordingly. A handler throw propagates uncaught.
 	 */
 	handle(request: Request, state: TState): Promise<Response>
 	/**

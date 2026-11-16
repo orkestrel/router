@@ -1,12 +1,12 @@
-import type { CompiledPath, Method, RouteEntry, RouteInput } from './types.js'
-import { ContractError, escapeRegExp, preview } from '@orkestrel/contract'
-import { TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
+import type { CompiledPath, Method, RouteEntry, RouteInput, SegmentRank } from './types.js'
+import { ContractError, escapeRegExp, isArray, preview } from '@orkestrel/contract'
+import { PROTOTYPE_KEYS, TIER_LITERAL, TIER_PARAM, TIER_WILDCARD } from './constants.js'
 
 // The PURE path-matching primitives (self-describing helper naming — module scope,
 // no entity context). Every one is exported (the centralized-file rule): a
 // consumer composes them directly, or reaches them through the `Router` engine.
-// They speak ONLY `string` / `RegExp` / `Record` and `decodeURIComponent` (a
-// platform global valid in Node and the browser alike) — NO DOM, NO `node:*` — so
+// They speak ONLY `string` / `RegExp` / `Record`, `URL`, and `decodeURIComponent`
+// (platform globals valid in Node and the browser alike) — NO DOM, NO `node:*` — so
 // the SAME engine drives a method-dimensioned server dispatcher and a method-less
 // browser navigator.
 
@@ -60,19 +60,26 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
 }
 
 /**
- * Compiles a route path pattern into an anchored regex and its ordered param
- * names.
+ * Compiles a route path pattern into an anchored regex, its ordered param names,
+ * and its specificity vector.
  *
  * @remarks
  * Splits the CANONICALIZED path into segments. Each `:name` segment becomes a
  * `([^/]+)` capture group; the FINAL segment may instead be `*name`, which
- * becomes a `(.+)` capture spanning the REST of the path including slashes — a
- * wildcard segment anywhere but last is a registration-time programmer error
- * and throws a `ContractError` at the construction/registration boundary. Every regex
- * metacharacter in a literal segment is escaped first
- * ({@link import('@orkestrel/contract').escapeRegExp}), so a path like
- * `/files/:name.json` matches the `.` literally apart from the param. The
- * regex is anchored (`^…$`), so it matches the whole pathname, not a prefix.
+ * becomes a `(.+)` capture spanning the REST of the path including slashes.
+ * Literal text, a whole literal segment or the suffix after a param name, is
+ * encoded with {@link encodeSegment} and then regex-escaped
+ * ({@link import('@orkestrel/contract').escapeRegExp}), so `/café` matches the
+ * encoded pathname `/caf%C3%A9` a request carries and `/files/:name.json`
+ * matches the `.` literally apart from the param. The regex is anchored
+ * (`^…$`), so it matches the whole encoded pathname, not a prefix. A request
+ * pathname is compared as it arrives: `/us%65rs` does not match `/users`.
+ *
+ * Registration refuses four shapes with a `ContractError`: a wildcard segment
+ * anywhere but last (`placement`), a final `*name` followed by more text
+ * (`pattern`), a param or wildcard named for an `Object.prototype` property
+ * ({@link import('./constants.js').PROTOTYPE_KEYS}, `literal`), and a name used
+ * twice (`structure`).
  *
  * **Trailing slash is INSENSITIVE** (Express's `strict: false` default): a
  * single trailing slash on the request path is OPTIONAL, so `/users` matches
@@ -89,9 +96,10 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  * @param path - The route path pattern (for example `/users/:id`, `/files/*rest`)
  * @param sensitive - If `true`, matching is case-sensitive; if `false`, case is
  *   folded during matching. Default: `true`
- * @returns The {@link CompiledPath} — its `regex` + ordered `params`
+ * @returns The {@link CompiledPath} — its `regex`, ordered `params`, and `specificity`
  * @throws {@link import('@orkestrel/contract').ContractError} Thrown when a
- *   `*name` wildcard segment is not the FINAL segment
+ *   `*name` wildcard segment is not the FINAL segment or carries a suffix, or
+ *   when a param name is a prototype key or repeats
  *
  * @example
  * ```ts
@@ -102,6 +110,7 @@ export function computeDispatchKey(entry: RouteEntry<{ readonly method: Method }
  *
  * compilePath('/files/*rest').regex.test('/files/a/b.png') // true
  * compilePath('/Users', false).regex.test('/users') // true — case-insensitive
+ * compilePath('/café').regex.test('/caf%C3%A9') // true — literals match encoded
  * ```
  */
 export function compilePath(path: string, sensitive = true): CompiledPath {
@@ -111,9 +120,8 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 	const segments = normalized.split('/')
 	const compiledSegments = segments.map((segment, index) => {
 		const isFinal = index === segments.length - 1
-		// A wildcard-shaped segment head (`*name`) is only valid as the FINAL segment — a
-		// registration-time programmer error anywhere else, guarded at the boundary.
-		if (!isFinal && /^\*[A-Za-z_]\w*/.test(segment))
+		const wildcard = /^\*[A-Za-z_]\w*/.exec(segment)?.[0]
+		if (wildcard !== undefined && !isFinal)
 			throw new ContractError('a wildcard segment must be the final segment of a path pattern', {
 				code: 'placement',
 				context: {
@@ -122,29 +130,103 @@ export function compilePath(path: string, sensitive = true): CompiledPath {
 					received: preview(path),
 				},
 			})
-		// Classification and compilation share ONE segment parser — the tier
-		// {@link classifySegment} assigns is exactly the shape compiled here.
+		if (wildcard !== undefined && wildcard !== segment)
+			throw new ContractError('a wildcard segment must carry no text after its name', {
+				code: 'pattern',
+				context: {
+					path: ['path'],
+					limit: `a bare "${wildcard}" wildcard, not "${segment}"`,
+					received: preview(path),
+				},
+			})
 		const tier = classifySegment(segment, isFinal)
-		if (tier === TIER_WILDCARD) {
-			return { pattern: '(.+)', param: segment.slice(1) }
-		}
+		if (tier === TIER_WILDCARD) return { pattern: '(.+)', param: segment.slice(1) }
 		if (tier === TIER_PARAM) {
-			const match = /^:([A-Za-z_]\w*)/.exec(segment)
-			const name = match?.[1] ?? ''
-			return { pattern: `([^/]+)${escapeRegExp(segment.slice(1 + name.length))}`, param: name }
+			const name = /^:([A-Za-z_]\w*)/.exec(segment)?.[1] ?? ''
+			const literal = encodeSegment(segment.slice(1 + name.length))
+			return { pattern: `([^/]+)${escapeRegExp(literal)}`, param: name }
 		}
-		return { pattern: escapeRegExp(segment) }
+		return { pattern: escapeRegExp(encodeSegment(segment)) }
 	})
 	const pattern = compiledSegments.map((segment) => segment.pattern).join('/')
 	const params = compiledSegments.flatMap((segment) =>
 		segment.param === undefined ? [] : [segment.param],
 	)
+	const reserved = params.find((name) => PROTOTYPE_KEYS.has(name))
+	if (reserved !== undefined)
+		throw new ContractError('a param name must not name an Object.prototype property', {
+			code: 'literal',
+			context: {
+				path: ['path'],
+				limit: `a param name outside Object.prototype, not "${reserved}"`,
+				received: preview(path),
+			},
+		})
+	const repeated = params.find((name, index) => params.indexOf(name) !== index)
+	if (repeated !== undefined)
+		throw new ContractError('a param name must appear once in a path pattern', {
+			code: 'structure',
+			context: {
+				path: ['path'],
+				limit: `one param named "${repeated}"`,
+				received: preview(path),
+			},
+		})
 	// Allow ONE optional trailing slash before the `$` anchor (Express `strict: false`),
 	// EXCEPT for the root `/` and the empty pattern — those anchor exactly so they keep
 	// matching only `/` / `''` (a bare `/?` there would let `''` match `/` and vice versa).
 	const suffix = normalized === '/' || normalized === '' ? '' : '/?'
 	const flags = sensitive ? '' : 'i'
-	return { regex: new RegExp(`^${pattern}${suffix}$`, flags), params }
+	return {
+		regex: new RegExp(`^${pattern}${suffix}$`, flags),
+		params,
+		specificity: computeSpecificity(normalized),
+	}
+}
+
+/**
+ * Encodes the literal text of one path segment the way the WHATWG URL parser writes it
+ * into a pathname.
+ *
+ * @remarks
+ * Runs the text through a `URL` pathname setter, so a code point in the URL path
+ * percent-encode set (a space, a non-ASCII character, `?`, `#`, and the others the
+ * parser encodes) becomes its UTF-8 percent-escape, and every other character stays as
+ * written, an existing `%` included. A literal compiled from the result compares with
+ * the encoded `URL.pathname` a request carries. The text must hold no `/`.
+ *
+ * @param text - The literal text of one segment
+ * @returns The text as it appears in an encoded pathname
+ *
+ * @example
+ * ```ts
+ * encodeSegment('café') // 'caf%C3%A9'
+ * encodeSegment('a b') // 'a%20b'
+ * encodeSegment('report.json') // 'report.json'
+ * ```
+ */
+export function encodeSegment(text: string): string {
+	const url = new URL('http://localhost/')
+	// The leading `_` keeps a text of `.` or `..` from reading as a dot segment.
+	url.pathname = `/_${text}`
+	return url.pathname.slice(2)
+}
+
+/**
+ * Returns the input list as it is, or a one-entry list holding a single input — the
+ * shape every batch-capable `add` reads.
+ *
+ * @param input - One input or a list of inputs
+ * @returns The inputs as a list
+ *
+ * @example
+ * ```ts
+ * collectInputs('a') // ['a']
+ * collectInputs(['a', 'b']) // ['a', 'b']
+ * ```
+ */
+export function collectInputs<T>(input: T | readonly T[]): readonly T[] {
+	return isArray<T>(input) ? input : [input]
 }
 
 /**
@@ -185,7 +267,9 @@ export function decodeParam(value: string): string {
  * miss returns `undefined`. On a hit it walks `params` POSITIONALLY — the
  * `n`-th param name pairs with the `n`-th capture group — and URL-decodes each
  * value with {@link decodeParam}. Returns a frozen `name → value` record (empty
- * for a parameterless path). Total — never throws.
+ * for a parameterless path). Total — never throws. A decoded value is opaque
+ * text: `..%2F` decodes to `../` and `%00` to a NUL character, so a consumer that
+ * maps a capture to a file path must contain it.
  *
  * @param compiled - The {@link CompiledPath} from {@link compilePath}
  * @param pathname - The concrete request pathname to match (for example `/users/7`)
@@ -207,9 +291,7 @@ export function matchPath(
 	if (result === null) return undefined
 	const params = compiled.params.entries().flatMap(([index, name]) => {
 		const value = result[index + 1]
-		if (name === undefined || value === undefined) return []
-		const decoded = decodeParam(value)
-		return name === '__proto__' ? [] : [[name, decoded]]
+		return value === undefined ? [] : [[name, decodeParam(value)]]
 	})
 	return Object.freeze(Object.fromEntries(params))
 }
@@ -251,75 +333,80 @@ export function classifySegment(segment: string, isFinal: boolean): number {
 }
 
 /**
- * Computes a route path's specificity vector — the per-segment type ranking
- * that breaks a tie when several registered routes match the same concrete
- * pathname.
+ * Computes a route path's specificity vector — one {@link SegmentRank} per
+ * segment, the ranking that picks the winner when several registered routes
+ * match the same concrete pathname.
  *
  * @remarks
- * Splits the CANONICALIZED path into segments (on `/`) and maps each to its
- * specificity tier through {@link classifySegment} — the same segment parser
+ * Splits the CANONICALIZED path into segments (on `/`) and ranks each by its
+ * tier through {@link classifySegment} — the same segment parser
  * {@link compilePath} uses, so a literal segment that merely contains a `:`
- * (for example `a:b`) is correctly tiered as literal rather than param (the old
- * engine's bug, fixed here). The standard route-precedence rule compares two
- * matching routes' vectors LEFT-TO-RIGHT: at the first index where the tiers
- * differ, the HIGHER tier (a literal over a param over a wildcard) is MORE
- * SPECIFIC and wins — so `/users/me` (`[2, 2]`) beats `/users/:id` (`[2, 1]`)
- * beats `/users/*rest` (`[2, 0]`) regardless of registration order. Two routes
- * that match the SAME concrete pathname necessarily have the same segment
- * count in the common case; {@link compareSpecificity} handles the general
- * case for totality.
+ * (for example `a:b`) is tiered as literal rather than param — and then by the
+ * encoded length of its literal text: the whole segment for a literal, the
+ * suffix after the name for a param, and `0` for a wildcard.
+ * {@link compareSpecificity} reads two vectors segment by segment.
  *
  * @param path - The route path pattern (for example `/users/:id`)
- * @returns The per-segment specificity tiers, in order
+ * @returns The per-segment ranks, in order
  *
  * @example
  * ```ts
- * computeSpecificity('/users/me') // [2, 2]
- * computeSpecificity('/users/:id') // [2, 1]
- * computeSpecificity('/files/*rest') // [2, 0]
- * computeSpecificity('/a:b') // [2] — literal, not param — the classification fix
+ * computeSpecificity('/users/:id') // [{ tier: 2, length: 0 }, { tier: 2, length: 5 }, { tier: 1, length: 0 }]
+ * computeSpecificity('/files/:name.json').at(-1) // { tier: 1, length: 5 }
+ * computeSpecificity('/files/*rest').at(-1) // { tier: 0, length: 0 }
+ * computeSpecificity('/a:b').at(-1) // { tier: 2, length: 3 } — literal, not param
  * ```
  */
-export function computeSpecificity(path: string): readonly number[] {
+export function computeSpecificity(path: string): readonly SegmentRank[] {
 	const segments = canonicalizePath(path).split('/')
-	return segments.map((segment, index) => classifySegment(segment, index === segments.length - 1))
+	return segments.map((segment, index) => {
+		const tier = classifySegment(segment, index === segments.length - 1)
+		if (tier === TIER_WILDCARD) return { tier, length: 0 }
+		const literal = tier === TIER_PARAM ? segment.replace(/^:[A-Za-z_]\w*/, '') : segment
+		return { tier, length: encodeSegment(literal).length }
+	})
 }
 
 /**
- * Compares two route paths by specificity — the comparator that picks the
- * most-specific matching route (literal-over-param-over-wildcard,
- * registration-order-independent).
+ * Compares two specificity vectors — the comparator that picks the
+ * most-specific matching route: tier first, then literal length, segment by
+ * segment.
  *
  * @remarks
- * Compares the two paths' {@link computeSpecificity} vectors LEFT-TO-RIGHT and
- * returns a standard `Array.sort` ordering: a NEGATIVE number when `a` is MORE
- * specific than `b` (so a descending-specificity sort puts `a` first),
- * positive when `b` is more specific, `0` when neither out-ranks the other
- * across the compared segments. At the first index where the tiers differ,
- * the higher tier wins; if one vector is a prefix of the other (different
- * segment counts), the LONGER, more-segmented path is treated as more
- * specific (a missing segment ranks below any real one).
+ * Walks the two {@link computeSpecificity} vectors LEFT-TO-RIGHT and returns a
+ * standard `Array.sort` ordering: a NEGATIVE number when `a` is MORE specific
+ * than `b` (so a descending-specificity sort puts `a` first), positive when `b`
+ * is more specific, `0` when neither out-ranks the other. At the first segment
+ * where the ranks differ, the higher tier wins (a literal over a param over a
+ * wildcard), and within one tier the longer literal text wins, so
+ * `/files/:name.json` outranks `/files/:name`. If one vector is a prefix of the
+ * other, the LONGER, more-segmented path is more specific (a missing segment
+ * ranks below any real one). A `0` leaves the choice to the caller; the
+ * `Router` keeps the earlier registration.
  *
- * @param a - The first route path
- * @param b - The second route path
+ * @param a - The first path's specificity vector
+ * @param b - The second path's specificity vector
  * @returns A negative number when `a` is more specific, positive when `b` is, else `0`
  *
  * @example
  * ```ts
- * compareSpecificity('/users/me', '/users/:id') // negative — literal wins
- * compareSpecificity('/users/:id', '/users/*rest') // negative — param beats wildcard
- * compareSpecificity('/users/:id', '/users/:id') // 0 — equal specificity
+ * compareSpecificity(computeSpecificity('/users/me'), computeSpecificity('/users/:id')) // negative — literal wins
+ * compareSpecificity(computeSpecificity('/files/:name.json'), computeSpecificity('/files/:name')) // negative — longer suffix wins
+ * compareSpecificity(computeSpecificity('/users/:id'), computeSpecificity('/users/:slug')) // 0 — equal specificity
  * ```
  */
-export function compareSpecificity(a: string, b: string): number {
-	const left = computeSpecificity(a)
-	const right = computeSpecificity(b)
-	const longest = left.length >= right.length ? left : right
+export function compareSpecificity(a: readonly SegmentRank[], b: readonly SegmentRank[]): number {
+	const longest = a.length >= b.length ? a : b
 	for (const [index] of longest.entries()) {
 		// A missing segment ranks below any real one (the shorter path is less specific).
-		const tierA = left[index] ?? -1
-		const tierB = right[index] ?? -1
+		const left = a[index]
+		const right = b[index]
+		const tierA = left?.tier ?? -1
+		const tierB = right?.tier ?? -1
 		if (tierA !== tierB) return tierB - tierA
+		const lengthA = left?.length ?? 0
+		const lengthB = right?.length ?? 0
+		if (lengthA !== lengthB) return lengthB - lengthA
 	}
 	return 0
 }
