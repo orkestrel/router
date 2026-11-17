@@ -316,7 +316,9 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    when `GET` is present, then `OPTIONS`. A path-matches-but-method-doesn't
    dispatch invokes the `unmethoded` responder with the same set (default
    `405` + `Allow`, so `GET` alone reads `GET, HEAD, OPTIONS`); nothing matching
-   invokes the `unmatched` responder (default `404`). **A handler throw
+   invokes the `unmatched` responder (default `404`). In 0.0.22 the `405`
+   `Allow` header left `OPTIONS` out, so `GET` alone read `GET, HEAD`, and
+   auto-`HEAD` dropped the `GET` body without cancelling it. **A handler throw
    propagates uncaught** — the dispatcher never invents an error boundary
    (that is the consuming server's policy).
 10. **Wildcard trailing-slash capture is asymmetric with param folding
@@ -349,13 +351,20 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     `/caf%C3%A9/users/7`. `intercept: true` (history mode only) adds
     same-origin `<a>` click interception for a link inside `base` — a plain
     left-click with no modifier keys, no `target`, and no `download`
-    attribute. A link outside `base` navigates natively. `navigate` pushes an
+    attribute. A link outside `base` navigates natively, where 0.0.22
+    intercepted it and pushed it under `base`, so `/other/page` became
+    `/app/other/page`. In history mode, `navigate` throws a `ContractError`
+    coded `pattern` for a path that resolves on another origin, such as
+    `//elsewhere.example/b`, before the guard runs; 0.0.22 handed that path to
+    `pushState`, which threw a `DOMException`. `navigate` pushes an
     entry in both modes, `#path` in hash mode, and writes `{ index }` into its
     `history.state`; `start` writes `{ index: 0 }` to an entry that carries no
     index. A hash `navigate` to the hash the location shows keeps its entry.
 15. **Fallback semantics.** A location that matches nothing, or in history
     mode lies outside `base`, resolves the configured `fallback` pattern
-    (default: the first route's path) through the same engine. A `fallback`
+    (default: the first route's path) through the same engine. 0.0.22 matched
+    a location outside `base` by its whole pathname, so `/other/page` under
+    `base: '/app'` resolved the `/other/page` route. A `fallback`
     that itself matches no registered route leaves `active` `undefined` and
     emits nothing — no phantom match is ever fabricated.
 16. **Guard + supersede semantics.** An optional `guard(to, from, signal)` may
@@ -416,20 +425,24 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     `Request` over its `signal`. A peer disconnect is the message closing
     before it completed, or the paired `RequestOptions.response` closing
     before it ended. A body cancel, a discarded body, and a finished response
-    never abort it.
+    never abort it. 0.0.22 took no `signal` option and ignored one passed.
 22. **The request body is pull-based.** For a body-carrying method, the body
     reads the message only when its reader reads, through `readChunk`, with
     `duplex: 'half'` set as Node's fetch implementation requires. An unread
     body holds no more than the message's own buffer whatever the upload
     size, and Node discards it after the response. A cancel discards the
     remainder in place through `discardBody`, and so does the `finish` of the
-    paired response, so the connection serves its next request.
+    paired response, so the connection serves its next request. In 0.0.22
+    `buildRequest` pumped the whole upload into the body whether or not a
+    reader read it, and a cancel destroyed the message, aborted
+    `request.signal`, and left the next request on the connection unanswered.
 23. **A failed response reads as aborted.** `sendResponse` pipes a
     non-`null` body to the `ServerResponse` through `Readable.fromWeb`, which
     honors backpressure, and removes every listener it adds when the exchange
     ends. A response to a `HEAD` request, and a 1xx, 204, or 304 response,
     carries no body on the wire, so `sendResponse` cancels its body unread and
-    ends the target. When the peer closes first, it cancels
+    ends the target, where 0.0.22 read a `HEAD` response's body to its end and
+    Node dropped each write. When the peer closes first, it cancels
     the body, even one waiting for its next chunk, and resolves. When Node
     refuses a header or the body fails, it destroys the target and rejects, so
     the client reads an aborted response, never a truncated one that looks
