@@ -1,5 +1,6 @@
 import type { ListenerStep } from '../../setupServer.js'
 import { describe, expect, it } from 'vitest'
+import { EventEmitter, once } from 'node:events'
 import http from 'node:http'
 import { createRecorder, requireValue, waitForCondition, waitForDelay } from '@orkestrel/test'
 import { readErrorCode } from '@orkestrel/test/server'
@@ -9,6 +10,7 @@ import {
 	abandonUpload,
 	answerBareHead,
 	answerHead,
+	answerJSON,
 	answerRequest,
 	answerTarget,
 	answerWithServerListeners,
@@ -16,6 +18,7 @@ import {
 	cancelPendingUpload,
 	cancelUpload,
 	connectClient,
+	countConstructions,
 	createExchangeDispatcher,
 	createFailingBody,
 	destroyResponse,
@@ -25,9 +28,11 @@ import {
 	holdUpload,
 	HOST_CASES,
 	IdleBody,
+	JSON_EXCHANGES,
 	LISTENER_BOUND,
 	LISTENER_EVENTS,
 	postSequentially,
+	readAbortErrorClass,
 	readUpload,
 	refuseHeader,
 	REFUSED_HEADER,
@@ -364,7 +369,14 @@ describe('row L: the adapter holds a fixed few listeners per exchange and remove
 
 				expect(over).toEqual([])
 				expect(closed.step).toBe('closed')
-				expect(closed.response).toEqual({ close: 0, error: 0, end: 0, aborted: 0 })
+				expect(closed.response).toEqual({
+					close: 0,
+					error: 0,
+					end: 0,
+					aborted: 0,
+					readable: 0,
+					finish: 0,
+				})
 			} finally {
 				client.destroy()
 				await server.close()
@@ -392,6 +404,46 @@ describe('row L: the adapter holds a fixed few listeners per exchange and remove
 			await server.close()
 		}
 	}, 30000)
+})
+
+describe('row W: the normal path builds no abort exception', () => {
+	it('counts the DOMException a no-reason abort builds and the AbortError a losing wait builds (instrument control)', async () => {
+		const AbortError = await readAbortErrorClass()
+		const counts = await countConstructions({ DOMException, AbortError }, async () => {
+			new AbortController().abort()
+			await once(new EventEmitter(), 'never', { signal: AbortSignal.abort('stopped') }).catch(
+				() => undefined,
+			)
+		})
+
+		expect(counts).toEqual({ DOMException: 1, AbortError: 1 })
+	})
+
+	it('builds no DOMException and no AbortError across a GET and a POST with a JSON body read whole', async () => {
+		const AbortError = await readAbortErrorClass()
+		const sent = createRecorder<[method: string]>()
+		const server = await startServer((message, response) => {
+			void answerJSON(message, response, sent)
+		})
+		const client = await connectClient(server.port, ['GET', 'POST'])
+		try {
+			const counts = await countConstructions({ DOMException, AbortError }, async () => {
+				for (const request of JSON_EXCHANGES) client.write(request)
+				await client.wait(JSON_EXCHANGES.length, 'both exchanges are answered')
+				await waitForCondition('both sends settle', () => sent.count === JSON_EXCHANGES.length)
+			})
+
+			expect(sent.calls).toEqual([['GET'], ['POST']])
+			expect(client.responses.map((response) => [response.status, response.body])).toEqual([
+				[200, '{"ok":true}'],
+				[200, '{"items":["tent","stove"]}'],
+			])
+			expect(counts).toEqual({ DOMException: 0, AbortError: 0 })
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
 })
 
 describe('row F5: a bodiless response cancels its body unread', () => {

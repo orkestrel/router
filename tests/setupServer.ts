@@ -1,10 +1,10 @@
-import type { EventEmitter } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import type { RecorderInterface } from '@orkestrel/test'
 import type { DispatcherInterface } from '@src/core'
-import { once } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import http from 'node:http'
+import { Session } from 'node:inspector/promises'
 import net from 'node:net'
 import { TLSSocket } from 'node:tls'
 import { fileURLToPath } from 'node:url'
@@ -100,6 +100,9 @@ export interface ListenerStep {
 	readonly message: ListenerCounts
 	readonly response: ListenerCounts
 }
+
+/** Represents the constructions one counted run made, by constructor name. */
+export type ConstructionCounts = Readonly<Record<string, number>>
 
 /** Represents the per-request state the exchange dispatcher threads into its handlers. */
 export interface ExchangeState {
@@ -406,6 +409,8 @@ export const LISTENER_EVENTS: readonly string[] = Object.freeze([
 	'error',
 	'end',
 	'aborted',
+	'readable',
+	'finish',
 ])
 
 /**
@@ -417,6 +422,15 @@ export const LISTENER_EVENTS: readonly string[] = Object.freeze([
  * it runs. A count that grows with the chunk count breaks it.
  */
 export const LISTENER_BOUND = 3
+
+/** Names the global property through which `countConstructions` hands its constructors and log to the inspector. */
+export const CONSTRUCTION_KEY = '__routerConstructions'
+
+/** Holds a `GET` and a `POST` with a JSON body, sent one after the other on one connection. */
+export const JSON_EXCHANGES: readonly string[] = Object.freeze([
+	'GET /items HTTP/1.1\r\nHost: app.local\r\n\r\n',
+	'POST /items HTTP/1.1\r\nHost: app.local\r\nContent-Type: application/json\r\nContent-Length: 27\r\n\r\n{"items":["tent","stove"]}\n',
+])
 
 /** Holds how many keep-alive requests the warning row sends. */
 export const WARNING_REQUESTS = 1000
@@ -1018,6 +1032,75 @@ export function subtractListeners(counts: ListenerCounts, entry: ListenerCounts)
 	return Object.fromEntries(
 		LISTENER_EVENTS.map((name) => [name, (counts[name] ?? 0) - (entry[name] ?? 0)]),
 	)
+}
+
+/**
+ * Reads the class Node builds the rejection of an aborted `events.once` wait from, which no module exports.
+ *
+ * @returns The `AbortError` class of `node:events`
+ */
+export async function readAbortErrorClass(): Promise<unknown> {
+	const rejection: unknown = await once(new EventEmitter(), 'never', {
+		signal: AbortSignal.abort('read the class'),
+	}).catch((error: unknown) => error)
+	if (!(rejection instanceof Error)) throw new Error('expected an aborted wait to reject')
+	return rejection.constructor
+}
+
+/**
+ * Counts the constructions of each named constructor while `run` runs, in this thread,
+ * through an inspector breakpoint on each call whose condition logs the call and never pauses.
+ *
+ * @param constructors - The constructors to count, by the name the counts carry
+ * @param run - The work to count
+ * @returns The constructions per name
+ */
+export async function countConstructions(
+	constructors: Readonly<Record<string, unknown>>,
+	run: () => Promise<void>,
+): Promise<ConstructionCounts> {
+	const log: string[] = []
+	const access = `globalThis.${CONSTRUCTION_KEY}`
+	const session = new Session()
+	Reflect.set(globalThis, CONSTRUCTION_KEY, { constructors, log })
+	session.connect()
+	try {
+		await session.post('Debugger.enable')
+		for (const name of Object.keys(constructors)) {
+			const { result } = await session.post('Runtime.evaluate', {
+				expression: `${access}.constructors[${JSON.stringify(name)}]`,
+			})
+			await session.post('Debugger.setBreakpointOnFunctionCall', {
+				objectId: requireValue(result.objectId, `the ${name} constructor`),
+				condition: `(${access}.log.push(${JSON.stringify(name)}), false)`,
+			})
+		}
+		await run()
+		return Object.fromEntries(
+			Object.keys(constructors).map((name) => [name, log.filter((entry) => entry === name).length]),
+		)
+	} finally {
+		session.disconnect()
+		Reflect.deleteProperty(globalThis, CONSTRUCTION_KEY)
+	}
+}
+
+/**
+ * Answers a request through `buildRequest` and `sendResponse`, reading a `POST` body as JSON first, and records the method after the send settled.
+ *
+ * @param message - The request
+ * @param response - Its response
+ * @param sent - Records each settled exchange's method
+ */
+export async function answerJSON(
+	message: IncomingMessage,
+	response: ServerResponse,
+	sent: RecorderInterface<[method: string]>,
+): Promise<void> {
+	const request = buildRequest(message, { response })
+	const body: unknown = request.method === 'POST' ? await request.json() : { ok: true }
+	await sendResponse(Response.json(body), response)
+	sent.handler(request.method)
 }
 
 /**

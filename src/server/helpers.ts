@@ -6,7 +6,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { RequestOptions } from './types.js'
-import { once } from 'node:events'
+import { addAbortListener } from 'node:events'
 import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { ReadableStream as WebReadableStream } from 'node:stream/web'
@@ -129,15 +129,19 @@ export async function readChunk(
 	if (message.complete) return undefined
 	if (message.destroyed)
 		throw new Error('request body closed before it completed', { cause: message.errored })
-	const wait = createAbort({ signal })
+	const wait = Promise.withResolvers<void>()
+	message.once('readable', wait.resolve)
+	message.once('close', wait.resolve)
+	const abort = addAbortListener(signal, () => {
+		message.off('readable', wait.resolve)
+		message.off('close', wait.resolve)
+		wait.resolve()
+	})
 	// Either outcome only ends the wait: the next call reads the abort, the close, or the chunk.
-	await Promise.race([
-		once(message, 'readable', { signal: wait.signal }),
-		once(message, 'close', { signal: wait.signal }),
-	]).then(
-		() => wait.abort(),
-		() => wait.abort(),
-	)
+	await wait.promise
+	message.off('close', wait.resolve)
+	if (message.closed) message.off('readable', wait.resolve)
+	abort[Symbol.dispose]()
 	return readChunk(message, signal)
 }
 
@@ -165,7 +169,7 @@ export async function readChunk(
  * ```
  */
 export function discardBody(message: IncomingMessage, discard: AbortController): void {
-	discard.abort()
+	discard.abort(new Error('request body discarded'))
 	message.resume()
 }
 
@@ -323,11 +327,12 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 			source.pipe(target)
 			// One `finish` and one `close` wait, removed when either settles; `pipeline` and
 			// `finished` leave or double their listeners on a `ServerResponse`.
-			const wait = new AbortController()
-			await Promise.race([
-				once(target, 'finish', { signal: wait.signal }),
-				once(target, 'close', { signal: wait.signal }),
-			]).finally(() => wait.abort())
+			const wait = Promise.withResolvers<void>()
+			target.once('finish', wait.resolve)
+			target.once('close', wait.resolve)
+			await wait.promise
+			target.off('finish', wait.resolve)
+			target.off('close', wait.resolve)
 			if (!target.writableFinished && source.errored !== null) throw source.errored
 			if (!target.writableFinished) source.destroy()
 		}

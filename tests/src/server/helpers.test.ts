@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http'
+import { getEventListeners } from 'node:events'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { ContractError } from '@orkestrel/contract'
@@ -134,11 +135,15 @@ describe('readChunk', () => {
 
 	it('waits for a chunk that arrives after the call', async () => {
 		const message = createMessage('/upload', false)
-		const pending = readChunk(message, new AbortController().signal)
+		const signal = new AbortController().signal
+		const pending = readChunk(message, signal)
 		message.push(Buffer.from('later'))
 		const chunk = await pending
 
 		expect(chunk === undefined ? undefined : Buffer.from(chunk).toString()).toBe('later')
+		expect(message.listenerCount('readable')).toBe(0)
+		expect(message.listenerCount('close')).toBe(0)
+		expect(getEventListeners(signal, 'abort')).toEqual([])
 	})
 
 	it('throws when the message closes before it completed, while waiting or before the call', async () => {
@@ -163,6 +168,7 @@ describe('readChunk', () => {
 		await expect(readChunk(message, controller.signal)).rejects.toThrow('discarded')
 		expect(message.listenerCount('readable')).toBe(0)
 		expect(message.listenerCount('close')).toBe(0)
+		expect(getEventListeners(controller.signal, 'abort')).toEqual([])
 	})
 
 	it('refuses a message that carries a text encoding', async () => {
@@ -183,7 +189,9 @@ describe('discardBody', () => {
 		const pending = readChunk(message, discard.signal)
 		discardBody(message, discard)
 
-		await expect(pending).rejects.toThrow('This operation was aborted')
+		await expect(pending).rejects.toThrow('request body discarded')
+		expect(message.listenerCount('readable')).toBe(0)
+		expect(message.listenerCount('close')).toBe(0)
 		await waitForCondition('the message flows', () => message.readableFlowing === true)
 		message.push(Buffer.from('dropped'))
 		await waitForCondition('the message drops the pushed bytes', () => message.readableLength === 0)
