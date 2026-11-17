@@ -4,17 +4,25 @@ import type { RouterMatch } from '../../../src/core/types.js'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { ContractError } from '@orkestrel/contract'
 import { createNavigator, Navigator } from '../../../src/browser/index.js'
-import { createRecorder, waitForDelay } from '@orkestrel/test'
+import { createRecorder, waitForCondition, waitForDelay } from '@orkestrel/test'
 import {
+	BASE_ROUTES,
 	DOOR_PATHS,
+	ENCODED_BASES,
+	ENCODED_HASHES,
+	GUARD_ROUTES,
+	HASH_ROUTES,
 	buildDoorRoutes,
 	createAnchor,
+	createScriptedGuard,
+	startGuardedHistory,
 	startNavigator,
 	drainNavigators,
 	safeClick,
 	setHash,
 	settleHash,
 	settleHistory,
+	waitForHistory,
 } from '../../setupBrowser.js'
 
 // The test mirror of `src/browser/Navigator.ts` — pinned in a real Chromium (the
@@ -491,6 +499,609 @@ describe('Navigator — guard matrix', () => {
 	})
 })
 
+describe('Navigator — a link outside base', () => {
+	it('leaves a same-origin link outside base to the browser and keeps location and active', () => {
+		settleHistory('/app/users')
+		const navigator = startNavigator(navigators, BASE_ROUTES, {
+			history: true,
+			base: '/app',
+			intercept: true,
+		})
+		const anchor = createAnchor('/other/page')
+		try {
+			const { prevented } = safeClick(anchor)
+			expect(prevented).toBe(false)
+			expect(window.location.pathname).toBe('/app/users')
+			expect(navigator.active?.path).toBe('/users')
+		} finally {
+			anchor.remove()
+		}
+	})
+
+	it('intercepts a same-origin link inside base', () => {
+		settleHistory('/app/users')
+		const navigator = startNavigator(navigators, BASE_ROUTES, {
+			history: true,
+			base: '/app',
+			intercept: true,
+		})
+		const anchor = createAnchor('/app/other/page')
+		try {
+			const { prevented } = safeClick(anchor)
+			expect(prevented).toBe(true)
+			expect(window.location.pathname).toBe('/app/other/page')
+			expect(navigator.active?.path).toBe('/other/page')
+		} finally {
+			anchor.remove()
+		}
+	})
+
+	it('resolves the fallback for a location outside base', () => {
+		settleHistory('/other/page')
+		const navigator = startNavigator(navigators, BASE_ROUTES, { history: true, base: '/app' })
+		expect(navigator.active?.path).toBe('/users')
+	})
+})
+
+describe('Navigator — the guard runs before the URL moves', () => {
+	it('history mode: a vetoed navigate leaves location, history length, and active unchanged', async () => {
+		settleHistory('/a')
+		const verdict = Promise.withResolvers<boolean>()
+		const seen: string[] = []
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			history: true,
+			guard: (to) => {
+				seen.push(`${to.path} at ${window.location.pathname}`)
+				return to.path === '/b' ? verdict.promise : true
+			},
+		})
+		await waitForDelay()
+		const length = window.history.length
+		navigator.navigate('/b')
+		expect(window.location.pathname).toBe('/a')
+		verdict.resolve(false)
+		await waitForDelay()
+		expect(window.location.pathname).toBe('/a')
+		expect(window.history.length).toBe(length)
+		expect(navigator.active?.path).toBe('/a')
+		expect(seen).toEqual(['/a at /a', '/b at /a'])
+	})
+
+	it('history mode: an allowed navigate moves the URL after the verdict', async () => {
+		settleHistory('/a')
+		const verdict = Promise.withResolvers<boolean>()
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			history: true,
+			guard: (to) => (to.path === '/b' ? verdict.promise : true),
+		})
+		await waitForDelay()
+		navigator.navigate('/b')
+		expect(window.location.pathname).toBe('/a')
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(window.location.pathname).toBe('/b')
+		expect(navigator.active?.path).toBe('/b')
+	})
+
+	it('hash mode: a vetoed navigate leaves location.hash and active unchanged', async () => {
+		await setHash('#/a')
+		const verdict = Promise.withResolvers<boolean>()
+		const seen: string[] = []
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			guard: (to) => {
+				seen.push(`${to.path} at ${window.location.hash}`)
+				return to.path === '/b' ? verdict.promise : true
+			},
+		})
+		await waitForDelay()
+		const length = window.history.length
+		navigator.navigate('/b')
+		expect(window.location.hash).toBe('#/a')
+		verdict.resolve(false)
+		await waitForDelay()
+		expect(window.location.hash).toBe('#/a')
+		expect(window.history.length).toBe(length)
+		expect(navigator.active?.path).toBe('/a')
+		expect(seen).toEqual(['/a at #/a', '/b at #/a'])
+	})
+
+	it('hash mode: an allowed navigate moves the hash after the verdict and asks the guard once', async () => {
+		await setHash('#/a')
+		const verdict = Promise.withResolvers<boolean>()
+		const seen: string[] = []
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			guard: (to) => {
+				seen.push(to.path)
+				return to.path === '/b' ? verdict.promise : true
+			},
+		})
+		await waitForDelay()
+		navigator.navigate('/b')
+		expect(window.location.hash).toBe('#/a')
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(window.location.hash).toBe('#/b')
+		expect(navigator.active?.path).toBe('/b')
+		expect(seen).toEqual(['/a', '/b'])
+	})
+
+	it('history mode: refuses a path on another origin before the guard runs', () => {
+		settleHistory('/a')
+		const seen: string[] = []
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			history: true,
+			guard: (to) => {
+				seen.push(to.path)
+				return true
+			},
+		})
+		expect(() => navigator.navigate('//elsewhere.example/b')).toThrow(
+			expect.objectContaining({ code: 'pattern' }),
+		)
+		expect(() => navigator.navigate('//elsewhere.example/b')).toThrow(ContractError)
+		expect(window.location.pathname).toBe('/a')
+		expect(seen).toEqual(['/a'])
+	})
+})
+
+describe('Navigator — a veto after the browser moved the URL', () => {
+	it('history mode: a popstate veto moves the location back to the entry active describes', async () => {
+		settleHistory('/a')
+		const blocked = new Set<string>()
+		const seen: string[] = []
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			history: true,
+			guard: (to) => {
+				seen.push(to.path)
+				return !blocked.has(to.path)
+			},
+		})
+		await waitForDelay()
+		navigator.navigate('/b')
+		await waitForDelay()
+		navigator.navigate('/c')
+		await waitForDelay()
+		const length = window.history.length
+		blocked.add('/a')
+		const arrived = waitForHistory('popstate')
+		window.history.go(-2)
+		await arrived
+		await waitForCondition(
+			'the vetoed traversal returns to /c',
+			() => window.location.pathname === '/c',
+		)
+		await waitForDelay()
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.history.length).toBe(length)
+		expect(seen).toEqual(['/a', '/b', '/c', '/a'])
+	})
+
+	it('hash mode: a hashchange veto moves the hash back to the entry active describes', async () => {
+		await setHash('#/a')
+		const blocked = new Set<string>()
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			guard: (to) => !blocked.has(to.path),
+		})
+		await waitForDelay()
+		navigator.navigate('/b')
+		await waitForDelay()
+		blocked.add('/a')
+		const arrived = waitForHistory('hashchange')
+		window.history.back()
+		await arrived
+		await waitForCondition(
+			'the vetoed traversal returns to #/b',
+			() => window.location.hash === '#/b',
+		)
+		await waitForDelay()
+		expect(navigator.active?.path).toBe('/b')
+	})
+
+	it('hash mode: a vetoed fragment link the navigator did not write leaves the hash for the consumer to reconcile', async () => {
+		await setHash('#/a')
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			guard: (to) => to.path !== '/b',
+		})
+		await waitForDelay()
+		const anchor = createAnchor('#/b')
+		try {
+			const arrived = waitForHistory('hashchange')
+			anchor.click()
+			await arrived
+			// A traversal lands in a later task, so the case waits long enough for a restore to land.
+			await waitForDelay(100)
+			expect(window.location.hash).toBe('#/b')
+			expect(navigator.active?.path).toBe('/a')
+		} finally {
+			anchor.remove()
+		}
+	})
+
+	it('history mode: a navigate issued after a refused back survives the restore landing', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/d 0', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const length = window.history.length
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		const landed = waitForHistory('popstate')
+		navigator.navigate('/d')
+		await landed
+		expect(window.location.pathname).toBe('/c')
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.find(([path]) => path === '/d')?.[1]
+		expect(navigator.active?.path).toBe('/d')
+		expect(window.location.pathname).toBe('/d')
+		expect(window.history.state).toEqual({ index: 3 })
+		expect(window.history.length).toBe(length + 1)
+		expect(signal?.aborted).toBe(false)
+	})
+
+	it('history mode: a forward traversal back to the active entry cancels the pending back', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([['/b 1', verdict.promise]]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const events = createRecorder<readonly [RouterMatch<PageMeta>]>()
+		navigator.emitter.on('navigate', events.handler)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		const landed = waitForHistory('popstate')
+		window.history.forward()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.filter(([path]) => path === '/b').at(-1)?.[1]
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.location.pathname).toBe('/c')
+		expect(signal?.aborted).toBe(true)
+		expect(events.calls.map(([match]) => match.path)).not.toContain('/b')
+	})
+
+	it('history mode: a navigate issued after a refused go(-2) survives the restore landing', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/a 1', false],
+				['/d 0', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const length = window.history.length
+		const arrived = waitForHistory('popstate')
+		window.history.go(-2)
+		await arrived
+		const landed = waitForHistory('popstate')
+		navigator.navigate('/d')
+		await landed
+		expect(window.location.pathname).toBe('/c')
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.find(([path]) => path === '/d')?.[1]
+		expect(navigator.active?.path).toBe('/d')
+		expect(window.location.pathname).toBe('/d')
+		expect(window.history.state).toEqual({ index: 3 })
+		expect(window.history.length).toBe(length + 1)
+		expect(signal?.aborted).toBe(false)
+	})
+
+	it('history mode: a user traversal back to the active entry cancels a pending navigate', async () => {
+		const back = Promise.withResolvers<boolean>()
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', back.promise],
+				['/d 0', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		navigator.navigate('/d')
+		const landed = waitForHistory('popstate')
+		window.history.forward()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.find(([path]) => path === '/d')?.[1]
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.location.pathname).toBe('/c')
+		expect(signal?.aborted).toBe(true)
+	})
+
+	it('history mode: a restore landing spares only the arrival it lands', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const pending = Promise.withResolvers<boolean>()
+		const later = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/d 0', verdict.promise],
+				['/c 1', pending.promise],
+				['/b 2', later.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const refused = waitForHistory('popstate')
+		window.history.back()
+		await refused
+		const restored = waitForHistory('popstate')
+		navigator.navigate('/d')
+		await restored
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(window.history.state).toEqual({ index: 3 })
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		navigator.navigate('/b')
+		const landed = waitForHistory('popstate')
+		window.history.forward()
+		await landed
+		later.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.filter(([path]) => path === '/b').at(-1)?.[1]
+		expect(navigator.active?.path).toBe('/d')
+		expect(signal?.aborted).toBe(true)
+	})
+
+	it('history mode: a push clears a restore that never lands', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/a 1', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		navigator.navigate('/d')
+		// A traversal lands in a later task, so the case waits long enough for the restore to land.
+		await waitForDelay(100)
+		expect(window.location.pathname).toBe('/d')
+		expect(window.history.state).toEqual({ index: 2 })
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/d')
+	})
+
+	it('history mode: with no refused restore before it, a traversal back to the active entry cancels a pending navigate', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([['/a 1', verdict.promise]]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		navigator.navigate('/d')
+		await waitForDelay()
+		expect(window.history.state).toEqual({ index: 3 })
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/d')
+	})
+
+	it('history mode: stop clears a restore that lands while the navigator is stopped', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/a 1', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		const restored = waitForHistory('popstate')
+		navigator.stop()
+		await restored
+		expect(window.location.pathname).toBe('/c')
+		navigator.start()
+		await waitForDelay()
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/c')
+	})
+
+	it('history mode: with no refused restore before a restart, a traversal back to the active entry cancels a pending navigate', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([['/a 1', verdict.promise]]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		navigator.stop()
+		navigator.start()
+		await waitForDelay()
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/c')
+	})
+})
+
+describe('Navigator — a navigate from a navigate listener', () => {
+	it('runs after the emission, so each listener reads active equal to the match it receives', async () => {
+		settleHistory('/a')
+		const navigator = createNavigator<PageMeta>({ routes: GUARD_ROUTES, history: true })
+		navigators.push(navigator)
+		const deliveries: string[] = []
+		navigator.emitter.on('navigate', (match) => {
+			deliveries.push(`first ${match.path} ${navigator.active?.path}`)
+			if (match.path === '/b') navigator.navigate('/c')
+		})
+		navigator.emitter.on('navigate', (match) => {
+			deliveries.push(`second ${match.path} ${navigator.active?.path}`)
+		})
+		navigator.navigate('/b')
+		await waitForDelay()
+		expect(deliveries).toEqual(['first /b /b', 'second /b /b', 'first /c /c', 'second /c /c'])
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.location.pathname).toBe('/c')
+	})
+
+	it('yields to a later navigate made before the deferred navigate runs', async () => {
+		settleHistory('/a')
+		const navigator = createNavigator<PageMeta>({ routes: GUARD_ROUTES, history: true })
+		navigators.push(navigator)
+		const delivered: string[] = []
+		navigator.emitter.on('navigate', (match) => {
+			delivered.push(match.path)
+			if (match.path === '/b') navigator.navigate('/a')
+		})
+		navigator.navigate('/b')
+		navigator.navigate('/c')
+		await waitForDelay()
+		expect(delivered).toEqual(['/b', '/c'])
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.location.pathname).toBe('/c')
+	})
+})
+
+describe('Navigator — after destroy', () => {
+	it('navigate pushes no entry and emits nothing', () => {
+		settleHistory('/a')
+		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			history: true,
+			on: { navigate: recorder.handler },
+		})
+		navigator.destroy()
+		const length = window.history.length
+		navigator.navigate('/b')
+		expect(window.location.pathname).toBe('/a')
+		expect(window.history.length).toBe(length)
+		expect(navigator.active?.path).toBe('/a')
+		expect(recorder.count).toBe(1)
+	})
+
+	it('start binds no listener and resolves nothing', async () => {
+		await setHash('#/a')
+		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
+		const navigator = createNavigator<PageMeta>({
+			routes: GUARD_ROUTES,
+			on: { navigate: recorder.handler },
+		})
+		navigators.push(navigator)
+		navigator.destroy()
+		navigator.start()
+		expect(navigator.active).toBeUndefined()
+		window.location.hash = '#/b'
+		await waitForDelay()
+		expect(navigator.active).toBeUndefined()
+		expect(recorder.count).toBe(0)
+	})
+})
+
+describe('Navigator — the pending registry', () => {
+	it('stop aborts the pending navigation and discards its verdict', async () => {
+		settleHistory('/a')
+		const verdict = Promise.withResolvers<boolean>()
+		const signals: AbortSignal[] = []
+		const navigator = startNavigator(navigators, GUARD_ROUTES, {
+			history: true,
+			guard: (to, _from, signal) => {
+				signals.push(signal)
+				return to.path === '/b' ? verdict.promise : true
+			},
+		})
+		await waitForDelay()
+		navigator.navigate('/b')
+		navigator.stop()
+		expect(signals.map((signal) => signal.aborted)).toEqual([false, true])
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(window.location.pathname).toBe('/a')
+		expect(navigator.active?.path).toBe('/a')
+	})
+
+	it('destroy aborts a pending navigation on a navigator that never started', async () => {
+		settleHistory('/a')
+		const verdict = Promise.withResolvers<boolean>()
+		const signals: AbortSignal[] = []
+		const navigator = createNavigator<PageMeta>({
+			routes: GUARD_ROUTES,
+			history: true,
+			guard: (_to, _from, signal) => {
+				signals.push(signal)
+				return verdict.promise
+			},
+		})
+		navigators.push(navigator)
+		navigator.navigate('/b')
+		navigator.destroy()
+		expect(signals.map((signal) => signal.aborted)).toEqual([true])
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(window.location.pathname).toBe('/a')
+		expect(navigator.active).toBeUndefined()
+	})
+})
+
+describe('Navigator — location text compared in one form', () => {
+	it.each(ENCODED_BASES)(
+		'strips the non-ASCII base $base from the encoded pathname',
+		({ base, location, pathname, route, params }) => {
+			settleHistory(location)
+			const routes = [{ path: '/home', meta: { page: 'home' } }, route]
+			const navigator = startNavigator(navigators, routes, { history: true, base })
+			expect(window.location.pathname).toBe(pathname)
+			expect(navigator.active?.path).toBe(route.path)
+			expect(navigator.active?.params).toEqual(params)
+		},
+	)
+
+	it.each(ENCODED_HASHES)('resolves a navigate to the hash %s it already shows', async (path) => {
+		await setHash(`#${path}`)
+		const recorder = createRecorder<readonly [RouterMatch<PageMeta>]>()
+		const navigator = startNavigator(navigators, HASH_ROUTES, {
+			on: { navigate: recorder.handler },
+		})
+		const shown = window.location.hash
+		const length = window.history.length
+		navigator.navigate(path)
+		expect(recorder.count).toBe(2)
+		expect(recorder.calls[1]?.[0].path).toBe('/w/:name')
+		await waitForDelay()
+		expect(window.location.hash).toBe(shown)
+		expect(window.history.length).toBe(length)
+		expect(recorder.count).toBe(2)
+	})
+})
+
 describe('Navigator — the navigate event', () => {
 	it('emits navigate with the resolved match on every navigation', async () => {
 		await setHash('#/tokens')
@@ -602,8 +1213,8 @@ describe('Navigator — start / stop / destroy lifecycle', () => {
 	})
 })
 
-describe('Navigator — match(path) is a pure lookup', () => {
-	it('does not mutate active or touch the location', () => {
+describe('Navigator — a lookup goes through the router getter', () => {
+	it('answers through navigator.router.match without touching active or the location', () => {
 		settleHistory('/other')
 		const navigator = createNavigator<PageMeta>({
 			routes: [
@@ -613,12 +1224,12 @@ describe('Navigator — match(path) is a pure lookup', () => {
 			history: true,
 		})
 		navigators.push(navigator)
-		expect(navigator.match('/users/7')).toEqual({
+		expect(navigator.router.match('/users/7')).toEqual({
 			path: '/users/:id',
 			params: { id: '7' },
 			meta: { page: 'user' },
 		})
-		expect(navigator.match('/users/me')).toEqual({
+		expect(navigator.router.match('/users/me')).toEqual({
 			path: '/users/me',
 			params: {},
 			meta: { page: 'me' },
@@ -632,7 +1243,15 @@ describe('Navigator — match(path) is a pure lookup', () => {
 			routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
 		})
 		navigators.push(navigator)
-		expect(navigator.match('/nope')).toBeUndefined()
+		expect(navigator.router.match('/nope')).toBeUndefined()
+	})
+
+	it('exposes no match method of its own', () => {
+		const navigator = createNavigator<PageMeta>({
+			routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+		})
+		navigators.push(navigator)
+		expect('match' in navigator).toBe(false)
 	})
 })
 
@@ -671,7 +1290,10 @@ describe('Navigator — every door reaches an encoded literal (F9)', () => {
 		it(`matches ${path} as raw text and as the encoded pathname`, () => {
 			const navigator = startNavigator(navigators, buildDoorRoutes(path))
 			const encoded = new URL(path, window.location.origin).pathname
-			expect([navigator.match(path)?.path, navigator.match(encoded)?.path]).toEqual([path, path])
+			expect([navigator.router.match(path)?.path, navigator.router.match(encoded)?.path]).toEqual([
+				path,
+				path,
+			])
 		})
 	}
 })
@@ -751,15 +1373,14 @@ describe('Navigator — construction guards', () => {
 })
 
 describe('Navigator — the published router getter', () => {
-	it('carries the route payload as meta, the same shape navigator.match returns', () => {
-		const navigator = createNavigator<PageMeta>({
-			routes: [{ path: '/tokens', meta: { page: 'tokens' }, name: 'tokens' }],
+	it('carries the route payload as meta, the same shape the navigate event delivers', () => {
+		settleHistory('/tokens')
+		const navigator = startNavigator(navigators, [{ path: '/tokens', meta: { page: 'tokens' } }], {
+			history: true,
 		})
-		navigators.push(navigator)
 		const inner = navigator.router.match('/tokens')
 		expect(inner?.meta).toEqual({ page: 'tokens' })
-		expect(inner?.name).toBe('tokens')
-		expect(inner).toEqual(navigator.match('/tokens'))
+		expect(inner).toEqual(navigator.active)
 	})
 
 	it('registers each route once on the shared engine', () => {
@@ -771,7 +1392,7 @@ describe('Navigator — the published router getter', () => {
 		})
 		navigators.push(navigator)
 		expect(navigator.router.count).toBe(1)
-		expect(navigator.match('/tokens')?.meta).toEqual({ page: 'replaced' })
+		expect(navigator.router.match('/tokens')?.meta).toEqual({ page: 'replaced' })
 	})
 })
 
@@ -787,14 +1408,14 @@ describe('Navigator — destroy() idempotence', () => {
 })
 
 describe('NavigatorInterface — member shape', () => {
-	it('exposes router, emitter, active, start, stop, navigate, match, destroy', () => {
+	it('exposes router, emitter, active, start, stop, navigate, destroy', () => {
 		expectTypeOf<NavigatorInterface<PageMeta>>().toHaveProperty('router')
 		expectTypeOf<NavigatorInterface<PageMeta>>().toHaveProperty('emitter')
 		expectTypeOf<NavigatorInterface<PageMeta>>().toHaveProperty('active')
 		expectTypeOf<NavigatorInterface<PageMeta>['start']>().toBeFunction()
 		expectTypeOf<NavigatorInterface<PageMeta>['stop']>().toBeFunction()
 		expectTypeOf<NavigatorInterface<PageMeta>['navigate']>().toBeFunction()
-		expectTypeOf<NavigatorInterface<PageMeta>['match']>().toBeFunction()
+		expectTypeOf<NavigatorInterface<PageMeta>>().not.toHaveProperty('match')
 		expectTypeOf<NavigatorInterface<PageMeta>['destroy']>().toBeFunction()
 	})
 })
@@ -802,8 +1423,8 @@ describe('NavigatorInterface — member shape', () => {
 // ── Cross-face grammar parity fixture (the similar-surface pin) ─────────────
 //
 // The SAME table as `core/Router.test.ts` and `core/Dispatcher.test.ts` — one
-// one `it` case per face — driven here through the PURE `Navigator.match` lookup (no
-// location read, no fallback, no guard, no emit — safe to run with no hash set).
+// one `it` case per face — driven here through a history-mode `navigate`, the Navigator's own
+// door, and read back from `active`.
 const CROSS_FACE_TABLE = [
 	{ pattern: '/users/:id', request: '/users/7', params: { id: '7' } },
 	{ pattern: '/users/me', request: '/users/me', params: {} },
@@ -812,15 +1433,17 @@ const CROSS_FACE_TABLE = [
 ] as const
 
 describe('Navigator — cross-face grammar parity fixture', () => {
-	it('resolves every fixture case to its expected pattern + params through the pure match() lookup', () => {
+	it('resolves every fixture case to its expected pattern + params through navigate', () => {
+		settleHistory('/')
 		const navigator = createNavigator<PageMeta>({
 			routes: CROSS_FACE_TABLE.map((row) => ({ path: row.pattern, meta: { page: row.pattern } })),
+			history: true,
 		})
 		navigators.push(navigator)
 		for (const row of CROSS_FACE_TABLE) {
-			const match = navigator.match(row.request)
-			expect(match?.path).toBe(row.pattern)
-			expect(match?.params).toEqual(row.params)
+			navigator.navigate(row.request)
+			expect(navigator.active?.path).toBe(row.pattern)
+			expect(navigator.active?.params).toEqual(row.params)
 		}
 	})
 })
@@ -858,10 +1481,11 @@ describe('flagship fences', () => {
 		const titles: string[] = []
 		navigator.emitter.on('navigate', (match) => titles.push(match.meta.title))
 		navigator.start()
-		expect(navigator.match('/about')?.meta.title).toBe('About')
+		expect(navigator.router.match('/about')?.meta.title).toBe('About')
 		navigator.navigate('/about')
-		await waitForDelay()
+		expect(window.location.hash).toBe('#/about')
 		expect(navigator.active?.path).toBe('/about')
+		await waitForDelay()
 		expect(titles).toEqual(['Home', 'About'])
 		navigator.stop()
 		navigator.destroy()

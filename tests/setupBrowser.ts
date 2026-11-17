@@ -1,6 +1,6 @@
 import type { NavigatorInterface, NavigatorOptions } from '../src/browser/types.js'
-import type { createRecorder } from '@orkestrel/test'
-import { waitForDelay } from '@orkestrel/test'
+import type { RecorderInterface } from '@orkestrel/test'
+import { createRecorder, waitForDelay, waitForEvent } from '@orkestrel/test'
 import { createRouter } from '@src/core'
 import { createEmitter } from '@orkestrel/emitter'
 import { createNavigator } from '../src/browser/index.js'
@@ -55,6 +55,20 @@ export async function setHash(value: string): Promise<void> {
  */
 export function settleHistory(pathname = '/'): void {
 	window.history.replaceState(null, '', pathname)
+}
+
+/**
+ * Waits for the next `popstate` or `hashchange` the window dispatches, so a case reads what follows
+ * a traversal only after the browser has moved the location.
+ *
+ * @param type - The history event to wait for
+ * @returns The delivered event
+ */
+export function waitForHistory(type: 'popstate' | 'hashchange'): Promise<readonly [Event]> {
+	return waitForEvent<readonly [Event]>((listener) => {
+		window.addEventListener(type, listener, { once: true })
+		return () => window.removeEventListener(type, listener)
+	}, type)
 }
 
 /**
@@ -177,20 +191,129 @@ export function createStubNavigator(
 		start: () => {},
 		stop: () => {},
 		navigate: () => {},
-		match: () => undefined,
 		destroy: () => recorder.handler(id),
 	}
 }
 
+/** Describes one route a page scenario registers. */
+export interface PageRoute {
+	readonly path: string
+	readonly meta: PageMeta
+}
+
+/**
+ * Lists the routes the base rows register under `base: '/app'`: `/users` lies inside the base, and
+ * `/other/page` is the pattern a link to `/other/page` would hit if the navigator rewrote it under
+ * the base.
+ */
+export const BASE_ROUTES: readonly PageRoute[] = Object.freeze([
+	{ path: '/users', meta: { page: 'users' } },
+	{ path: '/other/page', meta: { page: 'other' } },
+])
+
+/** Lists the routes the guard, veto, re-entrancy, and teardown rows navigate between. */
+export const GUARD_ROUTES: readonly PageRoute[] = Object.freeze([
+	{ path: '/a', meta: { page: 'a' } },
+	{ path: '/b', meta: { page: 'b' } },
+	{ path: '/c', meta: { page: 'c' } },
+	{ path: '/d', meta: { page: 'd' } },
+])
+
+/** Describes a base whose text the browser encodes in `location.pathname`. */
+export interface EncodedBase {
+	readonly base: string
+	readonly location: string
+	readonly pathname: string
+	readonly route: PageRoute
+	readonly params: Readonly<Record<string, string>>
+}
+
+/** Lists the non-ASCII bases the one-form rows strip from the encoded `location.pathname`. */
+export const ENCODED_BASES: readonly EncodedBase[] = Object.freeze([
+	{
+		base: '/café',
+		location: '/café/users/7',
+		pathname: '/caf%C3%A9/users/7',
+		route: { path: '/users/:id', meta: { page: 'user' } },
+		params: { id: '7' },
+	},
+	{
+		base: '/日本/',
+		location: '/日本/users/8',
+		pathname: '/%E6%97%A5%E6%9C%AC/users/8',
+		route: { path: '/users/:id', meta: { page: 'user' } },
+		params: { id: '8' },
+	},
+])
+
+/** Lists the hash paths the one-form rows navigate to while the hash already names them. */
+export const ENCODED_HASHES: readonly string[] = Object.freeze(['/w/{c}^', '/w/a b', '/w/`q`'])
+
+/** Lists the route a hash row registers, which captures the whole segment under `/w/`. */
+export const HASH_ROUTES: readonly PageRoute[] = Object.freeze([
+	{ path: '/home', meta: { page: 'home' } },
+	{ path: '/w/:name', meta: { page: 'word' } },
+])
+
 /** Creates, tracks, and starts a navigator for a page scenario. */
 export function startNavigator(
 	navigators: Array<NavigatorInterface<PageMeta>>,
-	routes: ReadonlyArray<{ readonly path: string; readonly meta: PageMeta }>,
+	routes: readonly PageRoute[],
 	options?: Omit<Partial<NavigatorOptions<PageMeta>>, 'routes'>,
 ): NavigatorInterface<PageMeta> {
 	const navigator = createNavigator<PageMeta>({ routes, ...options })
 	navigators.push(navigator)
 	navigator.start()
+	return navigator
+}
+
+/** Describes a guard that answers from a plan and the calls it recorded. */
+export interface ScriptedGuard {
+	readonly guard: NonNullable<NavigatorOptions<PageMeta>['guard']>
+	readonly recorder: RecorderInterface<readonly [path: string, signal: AbortSignal]>
+}
+
+/**
+ * Creates a guard that records each call's destination and signal, and answers from a plan keyed
+ * `<path> <n>`, where `n` counts that path's earlier calls from 0. A call the plan does not name is
+ * allowed.
+ *
+ * @param plan - The verdicts by call key
+ * @returns The guard and its recorder
+ */
+export function createScriptedGuard(
+	plan: ReadonlyMap<string, boolean | Promise<boolean>>,
+): ScriptedGuard {
+	const recorder = createRecorder<readonly [path: string, signal: AbortSignal]>()
+	return {
+		recorder,
+		guard: (to, _from, signal) => {
+			const count = recorder.calls.filter(([path]) => path === to.path).length
+			recorder.handler(to.path, signal)
+			return plan.get(`${to.path} ${count}`) ?? true
+		},
+	}
+}
+
+/**
+ * Starts a guarded history-mode navigator at `/a` and navigates it to `/b` and then `/c`, so the
+ * entries `/a`, `/b`, and `/c` carry the indexes 0, 1, and 2 and `active` is `/c`.
+ *
+ * @param navigators - The tracked navigators the new one joins
+ * @param guard - The guard the navigator asks
+ * @returns The started navigator
+ */
+export async function startGuardedHistory(
+	navigators: Array<NavigatorInterface<PageMeta>>,
+	guard: NonNullable<NavigatorOptions<PageMeta>['guard']>,
+): Promise<NavigatorInterface<PageMeta>> {
+	settleHistory('/a')
+	const navigator = startNavigator(navigators, GUARD_ROUTES, { history: true, guard })
+	await waitForDelay()
+	navigator.navigate('/b')
+	await waitForDelay()
+	navigator.navigate('/c')
+	await waitForDelay()
 	return navigator
 }
 
@@ -212,9 +335,7 @@ export const DOOR_PATHS: readonly string[] = Object.freeze([
  * @param first - The pattern to register first
  * @returns The routes, each carrying its own pattern as its page
  */
-export function buildDoorRoutes(
-	first: string,
-): ReadonlyArray<{ readonly path: string; readonly meta: PageMeta }> {
+export function buildDoorRoutes(first: string): readonly PageRoute[] {
 	return [first, ...DOOR_PATHS.filter((path) => path !== first)].map((path) => ({
 		path,
 		meta: { page: path },

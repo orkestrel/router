@@ -442,10 +442,10 @@ describe('Router — answers-seam filtering leaves specificity intact', () => {
 // ── Cross-face grammar parity fixture (the similar-surface pin) ─────────────
 //
 // The SAME route table is driven through `Router.match` (here), `Dispatcher.match`
-// (core/Dispatcher.test.ts), and `Navigator.match` (browser/Navigator.test.ts) — one
-// one `it` case per face, asserting the shared grammar resolves identically everywhere. The
-// table is a tiny local constant (not a shared setup helper, per this unit's file
-// ownership) duplicated verbatim across the three files.
+// (core/Dispatcher.test.ts), and a history-mode `Navigator.navigate`, read back from `active`
+// (browser/Navigator.test.ts) — one `it` case per face, asserting the shared grammar resolves
+// identically everywhere. The table is a tiny local constant (not a shared setup helper, per
+// this unit's file ownership) duplicated verbatim across the three files.
 const CROSS_FACE_TABLE = [
 	{ pattern: '/users/:id', request: '/users/7', params: { id: '7' } },
 	{ pattern: '/users/me', request: '/users/me', params: {} },

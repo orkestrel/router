@@ -67,38 +67,45 @@ export function extractHashPath(hash: string): string {
  * Hash mode (`history: false`) reads `location.hash` through
  * {@link extractHashPath}. History mode (`history: true`) reads
  * `location.pathname` and strips a leading `base` prefix when one is
- * configured: `base` itself maps to the root `'/'`; a pathname that is not
- * under `base` is returned unchanged (a base mismatch is not this helper's
- * concern — the `Navigator`'s match then misses). Total — never throws.
+ * configured: `base` itself maps to the root `'/'`, and a pathname outside
+ * `base` returns `undefined`. The URL parser encodes `base` before the
+ * comparison, so a raw `'/café'` and an encoded `'/caf%C3%A9'` both strip
+ * from the `'/caf%C3%A9/…'` that `location.pathname` carries. Total — never
+ * throws.
  *
  * @param location - The `hash` + `pathname` pair to resolve from (accepts a
- *   real `Location` or any object shaped the same, for pure unit testing)
+ *   real `Location`, a `URL`, or any object shaped the same)
  * @param history - If `true`, the pathname is read from `location.pathname`
  *   with `base` stripped; if `false`, it is read from `location.hash`
  * @param base - The history-mode path prefix to strip (ignored in hash mode;
  *   omit for no prefix)
- * @returns The `/`-prefixed pathname to match
+ * @returns The `/`-prefixed pathname to match, or `undefined` for a pathname
+ *   outside `base`
  *
  * @example
  * ```ts
  * resolveLocationPath({ hash: '#/users/7', pathname: '/' }, false) // '/users/7'
  * resolveLocationPath({ hash: '', pathname: '/app/users/7' }, true, '/app') // '/users/7'
  * resolveLocationPath({ hash: '', pathname: '/app' }, true, '/app') // '/'
- * resolveLocationPath({ hash: '', pathname: '/other/users' }, true, '/app') // '/other/users'
+ * resolveLocationPath({ hash: '', pathname: '/caf%C3%A9/users' }, true, '/café') // '/users'
+ * resolveLocationPath({ hash: '', pathname: '/other/users' }, true, '/app') // undefined
  * ```
  */
 export function resolveLocationPath(
 	location: Pick<Location, 'hash' | 'pathname'>,
 	history: boolean,
 	base?: string,
-): string {
+): string | undefined {
 	if (!history) return extractHashPath(location.hash)
 	const pathname = location.pathname
 	if (base === undefined || base === '') return pathname
-	const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base
-	if (pathname === normalizedBase) return '/'
-	if (pathname.startsWith(`${normalizedBase}/`)) return pathname.slice(normalizedBase.length)
-	return pathname
+	// The origin only anchors the parse; `pathname` is the form `location.pathname` carries.
+	const encoded = new URL(base, 'http://localhost').pathname
+	const prefix = encoded.endsWith('/') ? encoded.slice(0, -1) : encoded
+	if (prefix === '') return pathname
+	if (pathname === prefix) return '/'
+	if (pathname.startsWith(`${prefix}/`)) return pathname.slice(prefix.length)
+	return undefined
 }
 
 /**

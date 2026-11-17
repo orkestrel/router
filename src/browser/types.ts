@@ -31,6 +31,8 @@ import type { RouteEntry, RouterInterface, RouterMatch } from '@src/core'
  * `navigate()`, link interception) — never for a vetoed or superseded navigation
  * ({@link NavigatorOptions.guard}), and never when a miss's fallback also
  * misses — honest to the one-shared-engine rule: `active` is left `undefined`, nothing emitted.
+ * `active` equals the delivered match for every listener of one emission: a `navigate` a
+ * listener calls runs in a microtask after the emission ends, so the next emission follows it.
  */
 export type NavigatorEventMap<Meta> = {
 	readonly navigate: readonly [match: RouterMatch<Meta>]
@@ -51,7 +53,9 @@ export type NavigatorEventMap<Meta> = {
  *   server configuration) or `true` (history mode: `pushState`/`popstate`).
  * - `base` — a history-mode path prefix stripped from `location.pathname`
  *   before matching, and prepended when navigating (`navigate`, link
- *   interception). Ignored unless `history` is set.
+ *   interception). It is compared in the encoded form `location.pathname`
+ *   carries, and a location outside it resolves the `fallback`. Ignored unless
+ *   `history` is set.
  * - `fallback` — the route PATTERN to resolve when the current location
  *   matches NOTHING. Omitted ⇒ the first route's path. A `fallback` that
  *   itself matches no registered route leaves `active` `undefined` and emits
@@ -59,13 +63,20 @@ export type NavigatorEventMap<Meta> = {
  * - `guard` — `(to, from, signal) => boolean | Promise<boolean>`, called
  *   before a navigation commits; a `false`/rejected verdict, or one arriving
  *   after the navigation was SUPERSEDED (`signal.aborted`), is discarded —
- *   `active` stays unchanged and nothing is emitted. `signal` fires when a
+ *   `active` stays unchanged and nothing is emitted. `navigate` and an
+ *   intercepted link ask the guard before the URL moves, so a veto leaves the
+ *   location unchanged too. After a `popstate` or `hashchange` veto, the
+ *   navigator moves the browser back to the entry `active` describes when
+ *   both entries carry the index it writes into `history.state`; an entry it
+ *   did not write leaves the location for the consumer to reconcile with
+ *   `active`. `signal` fires when a
  *   NEWER navigation starts (or on `stop`/`destroy`), so a slow async guard
  *   can cancel its own work off it. A throw routes to the `error` handler
  *   described later in this list and vetoes the navigation.
  * - `intercept` — opt-in same-origin `<a>` click interception (history mode
- *   only): a plain left-click on a same-origin link with no modifier keys,
- *   no `target`, and no `download` attribute is intercepted into `navigate`.
+ *   only): a plain left-click on a same-origin link inside `base` with no
+ *   modifier keys, no `target`, and no `download` attribute is intercepted
+ *   into `navigate`; a link outside `base` navigates natively.
  * - `sensitive` — forwarded to the underlying `Router` (default `true`).
  * - `on` — initial `NavigatorEventMap` listeners (the Emitter pattern's
  *   similar-surface pin).
@@ -121,25 +132,24 @@ export interface NavigatorInterface<Meta> {
 	 *
 	 * @remarks
 	 * Hash mode binds `hashchange`; history mode binds `popstate` and, where `intercept`
-	 * is set, same-origin link interception.
+	 * is set, same-origin link interception. The current history entry gets
+	 * `{ index: 0 }` as its `history.state` when it carries no index. After `destroy`,
+	 * it does nothing.
 	 */
 	start(): void
 	/** Stops listening and aborts any pending guard — idempotent. */
 	stop(): void
 	/**
-	 * Navigates programmatically — sets `location.hash` in hash mode or calls
-	 * `history.pushState` in history mode, then resolves.
+	 * Navigates programmatically — runs the guard, then pushes the entry (`#path` in hash
+	 * mode, the `base`-joined path in history mode) and commits.
 	 *
 	 * @remarks
-	 * A hash navigation to the active hash resolves directly, because no `hashchange`
-	 * would otherwise fire.
+	 * The pushed entry's `history.state` is `{ index }`, one past the current entry's.
+	 * A hash navigation to the hash the location shows keeps its entry and resolves
+	 * directly. Thrown when the history-mode path resolves on another origin: a
+	 * `ContractError` coded `pattern`. After `destroy`, it does nothing.
 	 */
 	navigate(path: string): void
-	/**
-	 * Looks one path up through the underlying `Router` — a pure lookup with no location
-	 * read, no fallback, no guard, and no emit.
-	 */
-	match(path: string): RouterMatch<Meta> | undefined
-	/** Stops listening and tears down the emitter. */
+	/** Stops listening, aborts any pending guard, and tears down the emitter. */
 	destroy(): void
 }

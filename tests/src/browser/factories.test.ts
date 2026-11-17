@@ -14,10 +14,10 @@ describe('createNavigator', () => {
 		}
 	})
 
-	it('is usable immediately — match() works before start()', () => {
+	it('is usable immediately — its router answers before start()', () => {
 		const navigator = createNavigator({ routes: [{ path: '/users/:id', meta: { page: 'user' } }] })
 		try {
-			expect(navigator.match('/users/7')).toEqual({
+			expect(navigator.router.match('/users/7')).toEqual({
 				path: '/users/:id',
 				params: { id: '7' },
 				meta: { page: 'user' },
