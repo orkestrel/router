@@ -433,6 +433,25 @@ describe('buildRequest', () => {
 		}
 	})
 
+	it('links no option signal from a paired call after the response closed while the message is open', async () => {
+		const signal = new AbortController().signal
+		const reading = Promise.withResolvers<[boolean, boolean, number]>()
+		const server = await startServer((incoming, response) => {
+			response.once('close', () => {
+				const open = !incoming.closed
+				Array.from({ length: 5 }).forEach(() => buildRequest(incoming, { signal, response }))
+				reading.resolve([open, response.closed, getEventListeners(signal, 'abort').length])
+			})
+			response.end('ok')
+		})
+		try {
+			await (await fetch(server.url)).text()
+			expect(await reading.promise).toEqual([true, true, 0])
+		} finally {
+			await server.close()
+		}
+	})
+
 	it('keeps the option-signal link after a paired message closed until the response ends', async () => {
 		const reason = new Error('the run stopped')
 		const run = new AbortController()
