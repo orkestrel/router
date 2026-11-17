@@ -1,4 +1,4 @@
-import type { ServerResponse } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ListenerCounts } from '../../setupServer.js'
 import { getEventListeners } from 'node:events'
 import net from 'node:net'
@@ -413,6 +413,56 @@ describe('buildRequest', () => {
 		expect(Math.abs(none)).toBeLessThanOrEqual(RETENTION_BOUND)
 	}, 30000)
 
+	it('links no option signal after the message closed, and none after a paired exchange closed', async () => {
+		const exchange = Promise.withResolvers<[IncomingMessage, ServerResponse]>()
+		const server = await startServer((incoming, response) => {
+			exchange.resolve([incoming, response])
+			response.end('ok')
+		})
+		try {
+			await (await fetch(server.url)).text()
+			const [message, response] = await exchange.promise
+			await waitForCondition('both close', () => message.closed && response.closed)
+			const signal = new AbortController().signal
+			Array.from({ length: 5 }).forEach(() => buildRequest(message, { signal }))
+			expect(getEventListeners(signal, 'abort')).toEqual([])
+			Array.from({ length: 5 }).forEach(() => buildRequest(message, { signal, response }))
+			expect(getEventListeners(signal, 'abort')).toEqual([])
+		} finally {
+			await server.close()
+		}
+	})
+
+	it('keeps the option-signal link after a paired message closed until the response ends', async () => {
+		const reason = new Error('the run stopped')
+		const run = new AbortController()
+		const outcome = Promise.withResolvers<[boolean, unknown]>()
+		const server = await startServer(async (incoming, response) => {
+			const request = buildRequest(incoming, { response, signal: run.signal })
+			await request.text()
+			await waitForCondition('the message closes', () => incoming.closed)
+			run.abort(reason)
+			outcome.resolve([request.signal.aborted, request.signal.reason])
+			response.end('ok')
+		})
+		try {
+			await (await fetch(server.url, { method: 'POST', body: 'payload' })).text()
+			const [aborted, received] = await outcome.promise
+			expect(aborted).toBe(true)
+			expect(received).toBe(reason)
+		} finally {
+			await server.close()
+		}
+	})
+
+	it('reads a born-aborted option signal as aborted synchronously', () => {
+		const reason = new Error('born aborted')
+		const request = buildRequest(createMessage('/x', false), { signal: AbortSignal.abort(reason) })
+
+		expect(request.signal.aborted).toBe(true)
+		expect(request.signal.reason).toBe(reason)
+	})
+
 	it('frees what a run-lived option signal holds when each exchange ends', async () => {
 		const none = await measureRetention(RETENTION_CALLS, false)
 		const linked = await measureRetention(RETENTION_CALLS, true)
@@ -677,6 +727,58 @@ describe('sendResponse', () => {
 			})
 		} finally {
 			client.destroy()
+			await server.close()
+		}
+	})
+
+	it('rejects and answers an aborted response when the target errors in the turn that completes the body', async () => {
+		const send = new ResponseSend()
+		const failure = new Error('the target failed in the turn')
+		const server = await startServer((_request, response) => {
+			const pulls = createRecorder<[]>()
+			const body = new ReadableStream<Uint8Array>({
+				pull(controller) {
+					pulls.handler()
+					if (pulls.count === 1) {
+						controller.enqueue(new Uint8Array(3).fill(97))
+						return
+					}
+					response.emit('error', failure)
+					controller.close()
+				},
+			})
+			void send.execute(new Response(body), response)
+		})
+		try {
+			await expect(fetch(server.url)).rejects.toThrow('fetch failed')
+			await send.done
+
+			expect(send.settled).toBe(false)
+			expect(send.failure).toBe(failure)
+		} finally {
+			await server.close()
+		}
+	})
+
+	it('answers a one-chunk DataView body as the streamed path does', async () => {
+		const send = new ResponseSend()
+		const bytes = new TextEncoder().encode('view')
+		const server = await startServer((_request, response) => {
+			const body = new ReadableStream({
+				start(controller) {
+					controller.enqueue(new DataView(bytes.buffer))
+					controller.close()
+				},
+			})
+			void send.execute(new Response(body), response)
+		})
+		try {
+			const answer = await fetch(server.url)
+
+			expect(await answer.text()).toBe('view')
+			await send.done
+			expect(send.failure).toBeUndefined()
+		} finally {
 			await server.close()
 		}
 	})
