@@ -429,10 +429,7 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     listener of the exchange and aborts nothing. A peer disconnect is the
     message closing before it completed, or the paired response closing
     before it ended. A body cancel, a discarded body, and a finished response
-    never abort it. On Node 22, a `RequestOptions.signal` value that outlives
-    its exchange keeps one `AbortSignal.any` link per `buildRequest` call
-    reachable for as long as the signal lives, so pass a signal that lives as
-    long as one exchange. 0.0.22 took no `signal` option and ignored one passed.
+    never abort it. 0.0.22 took no `signal` option and ignored one passed.
 22. **The request body is pull-based.** For a body-carrying method, the body
     reads the message only when its reader reads, through `readChunk`, with
     `duplex: 'half'` set as Node's fetch implementation requires. An unread
