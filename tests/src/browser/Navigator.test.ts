@@ -14,6 +14,8 @@ import {
 	HASH_ROUTES,
 	buildDoorRoutes,
 	createAnchor,
+	createScriptedGuard,
+	startGuardedHistory,
 	startNavigator,
 	drainNavigators,
 	safeClick,
@@ -713,6 +715,144 @@ describe('Navigator — a veto after the browser moved the URL', () => {
 		} finally {
 			anchor.remove()
 		}
+	})
+
+	it('history mode: a navigate issued after a refused back survives the restore landing', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/d 0', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const length = window.history.length
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		const landed = waitForHistory('popstate')
+		navigator.navigate('/d')
+		await landed
+		expect(window.location.pathname).toBe('/c')
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.find(([path]) => path === '/d')?.[1]
+		expect(navigator.active?.path).toBe('/d')
+		expect(window.location.pathname).toBe('/d')
+		expect(window.history.state).toEqual({ index: 3 })
+		expect(window.history.length).toBe(length + 1)
+		expect(signal?.aborted).toBe(false)
+	})
+
+	it('history mode: a forward traversal back to the active entry cancels the pending back', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([['/b 1', verdict.promise]]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const events = createRecorder<readonly [RouterMatch<PageMeta>]>()
+		navigator.emitter.on('navigate', events.handler)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		const landed = waitForHistory('popstate')
+		window.history.forward()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.filter(([path]) => path === '/b').at(-1)?.[1]
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.location.pathname).toBe('/c')
+		expect(signal?.aborted).toBe(true)
+		expect(events.calls.map(([match]) => match.path)).not.toContain('/b')
+	})
+
+	it('history mode: a navigate issued after a refused go(-2) survives the restore landing', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/a 1', false],
+				['/d 0', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const length = window.history.length
+		const arrived = waitForHistory('popstate')
+		window.history.go(-2)
+		await arrived
+		const landed = waitForHistory('popstate')
+		navigator.navigate('/d')
+		await landed
+		expect(window.location.pathname).toBe('/c')
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.find(([path]) => path === '/d')?.[1]
+		expect(navigator.active?.path).toBe('/d')
+		expect(window.location.pathname).toBe('/d')
+		expect(window.history.state).toEqual({ index: 3 })
+		expect(window.history.length).toBe(length + 1)
+		expect(signal?.aborted).toBe(false)
+	})
+
+	it('history mode: a user traversal back to the active entry cancels a pending navigate', async () => {
+		const back = Promise.withResolvers<boolean>()
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', back.promise],
+				['/d 0', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		navigator.navigate('/d')
+		const landed = waitForHistory('popstate')
+		window.history.forward()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.find(([path]) => path === '/d')?.[1]
+		expect(navigator.active?.path).toBe('/c')
+		expect(window.location.pathname).toBe('/c')
+		expect(signal?.aborted).toBe(true)
+	})
+
+	it('history mode: a restore landing spares only the arrival it lands', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const pending = Promise.withResolvers<boolean>()
+		const later = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/d 0', verdict.promise],
+				['/c 1', pending.promise],
+				['/b 2', later.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const refused = waitForHistory('popstate')
+		window.history.back()
+		await refused
+		const restored = waitForHistory('popstate')
+		navigator.navigate('/d')
+		await restored
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(window.history.state).toEqual({ index: 3 })
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		navigator.navigate('/b')
+		const landed = waitForHistory('popstate')
+		window.history.forward()
+		await landed
+		later.resolve(true)
+		await waitForDelay()
+		const signal = scripted.recorder.calls.filter(([path]) => path === '/b').at(-1)?.[1]
+		expect(navigator.active?.path).toBe('/d')
+		expect(signal?.aborted).toBe(true)
 	})
 })
 

@@ -1,6 +1,6 @@
 import type { NavigatorInterface, NavigatorOptions } from '../src/browser/types.js'
-import type { createRecorder } from '@orkestrel/test'
-import { waitForDelay, waitForEvent } from '@orkestrel/test'
+import type { RecorderInterface } from '@orkestrel/test'
+import { createRecorder, waitForDelay, waitForEvent } from '@orkestrel/test'
 import { createRouter } from '@src/core'
 import { createEmitter } from '@orkestrel/emitter'
 import { createNavigator } from '../src/browser/index.js'
@@ -216,6 +216,7 @@ export const GUARD_ROUTES: readonly PageRoute[] = Object.freeze([
 	{ path: '/a', meta: { page: 'a' } },
 	{ path: '/b', meta: { page: 'b' } },
 	{ path: '/c', meta: { page: 'c' } },
+	{ path: '/d', meta: { page: 'd' } },
 ])
 
 /** Describes a base whose text the browser encodes in `location.pathname`. */
@@ -263,6 +264,56 @@ export function startNavigator(
 	const navigator = createNavigator<PageMeta>({ routes, ...options })
 	navigators.push(navigator)
 	navigator.start()
+	return navigator
+}
+
+/** Describes a guard that answers from a plan and the calls it recorded. */
+export interface ScriptedGuard {
+	readonly guard: NonNullable<NavigatorOptions<PageMeta>['guard']>
+	readonly recorder: RecorderInterface<readonly [path: string, signal: AbortSignal]>
+}
+
+/**
+ * Creates a guard that records each call's destination and signal, and answers from a plan keyed
+ * `<path> <n>`, where `n` counts that path's earlier calls from 0. A call the plan does not name is
+ * allowed.
+ *
+ * @param plan - The verdicts by call key
+ * @returns The guard and its recorder
+ */
+export function createScriptedGuard(
+	plan: ReadonlyMap<string, boolean | Promise<boolean>>,
+): ScriptedGuard {
+	const recorder = createRecorder<readonly [path: string, signal: AbortSignal]>()
+	return {
+		recorder,
+		guard: (to, _from, signal) => {
+			const count = recorder.calls.filter(([path]) => path === to.path).length
+			recorder.handler(to.path, signal)
+			return plan.get(`${to.path} ${count}`) ?? true
+		},
+	}
+}
+
+/**
+ * Starts a guarded history-mode navigator at `/a` and navigates it to `/b` and then `/c`, so the
+ * entries `/a`, `/b`, and `/c` carry the indexes 0, 1, and 2 and `active` is `/c`.
+ *
+ * @param navigators - The tracked navigators the new one joins
+ * @param guard - The guard the navigator asks
+ * @returns The started navigator
+ */
+export async function startGuardedHistory(
+	navigators: Array<NavigatorInterface<PageMeta>>,
+	guard: NonNullable<NavigatorOptions<PageMeta>['guard']>,
+): Promise<NavigatorInterface<PageMeta>> {
+	settleHistory('/a')
+	const navigator = startNavigator(navigators, GUARD_ROUTES, { history: true, guard })
+	await waitForDelay()
+	navigator.navigate('/b')
+	await waitForDelay()
+	navigator.navigate('/c')
+	await waitForDelay()
 	return navigator
 }
 

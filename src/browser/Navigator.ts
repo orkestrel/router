@@ -71,6 +71,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	#active: RouterMatch<Meta> | undefined
 	#index: number | undefined
 	#started = false
+	#restoring = false
 
 	constructor(options: NavigatorOptions<Meta>) {
 		if (options.guard !== undefined && !isFunction(options.guard))
@@ -187,12 +188,14 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 
 	// === Private
 
-	// An arrival at the entry `active` describes (a restore landing, or a traversal back to it)
-	// supersedes any pending navigation and resolves nothing.
+	// An arrival at the entry `active` describes resolves nothing: a restore's landing cancels
+	// nothing, and any other arrival there cancels every pending navigation.
 	#arrive(): void {
 		const landed = this.#position()
+		const restored = this.#restoring
+		this.#restoring = false
 		if (landed !== undefined && landed === this.#index) {
-			this.#supersede()
+			if (!restored) this.#supersede()
 			return
 		}
 		this.#resolve(landed)
@@ -343,6 +346,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	#restore(landed: number | undefined): void {
 		const index = this.#index
 		if (landed === undefined || index === undefined || landed === index) return
+		this.#restoring = true
 		window.history.go(index - landed)
 	}
 
