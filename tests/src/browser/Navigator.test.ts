@@ -854,6 +854,103 @@ describe('Navigator — a veto after the browser moved the URL', () => {
 		expect(navigator.active?.path).toBe('/d')
 		expect(signal?.aborted).toBe(true)
 	})
+
+	it('history mode: a push clears a restore that never lands', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/a 1', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		navigator.navigate('/d')
+		// A traversal lands in a later task, so the case waits long enough for the restore to land.
+		await waitForDelay(100)
+		expect(window.location.pathname).toBe('/d')
+		expect(window.history.state).toEqual({ index: 2 })
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/d')
+	})
+
+	it('history mode: with no refused restore before it, a traversal back to the active entry cancels a pending navigate', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([['/a 1', verdict.promise]]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		navigator.navigate('/d')
+		await waitForDelay()
+		expect(window.history.state).toEqual({ index: 3 })
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/d')
+	})
+
+	it('history mode: stop clears a restore that lands while the navigator is stopped', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([
+				['/b 1', false],
+				['/a 1', verdict.promise],
+			]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		const arrived = waitForHistory('popstate')
+		window.history.back()
+		await arrived
+		const restored = waitForHistory('popstate')
+		navigator.stop()
+		await restored
+		expect(window.location.pathname).toBe('/c')
+		navigator.start()
+		await waitForDelay()
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/c')
+	})
+
+	it('history mode: with no refused restore before a restart, a traversal back to the active entry cancels a pending navigate', async () => {
+		const verdict = Promise.withResolvers<boolean>()
+		const scripted = createScriptedGuard(
+			new Map<string, boolean | Promise<boolean>>([['/a 1', verdict.promise]]),
+		)
+		const navigator = await startGuardedHistory(navigators, scripted.guard)
+		navigator.stop()
+		navigator.start()
+		await waitForDelay()
+		window.history.pushState(null, '', `${window.location.pathname}#app`)
+		navigator.navigate('/a')
+		const landed = waitForHistory('popstate')
+		window.history.back()
+		await landed
+		verdict.resolve(true)
+		await waitForDelay()
+		expect(scripted.recorder.calls.filter(([path]) => path === '/a').at(-1)?.[1].aborted).toBe(true)
+		expect(navigator.active?.path).toBe('/c')
+	})
 })
 
 describe('Navigator — a navigate from a navigate listener', () => {

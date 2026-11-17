@@ -154,6 +154,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 			window.removeEventListener('popstate', this.#listener)
 			if (this.#intercept) document.removeEventListener('click', this.#clickListener)
 		}
+		this.#restoring = false
 		this.#supersede()
 	}
 
@@ -245,6 +246,7 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	// that carries no index writes none.
 	#push(url: URL): number | undefined {
 		const current = this.#position()
+		this.#restoring = false
 		if (!this.#history && url.hash === window.location.hash) return current
 		const index = current === undefined ? undefined : current + 1
 		window.history.pushState(
