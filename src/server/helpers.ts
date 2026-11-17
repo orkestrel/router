@@ -233,11 +233,11 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
 	const parent = options?.signal
 	const abort = new AbortController()
 	if (parent?.aborted === true) abort.abort(parent.reason)
+	const response = options?.response
 	const link =
-		parent === undefined || parent.aborted
+		parent === undefined || parent.aborted || (response ?? message).closed
 			? undefined
 			: addAbortListener(parent, () => abort.abort(parent.reason))
-	const response = options?.response
 	message.once('close', () => {
 		if (!message.complete)
 			abort.abort(new Error(`request to ${url.pathname} disconnected before completion`))
@@ -278,7 +278,7 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  * Writes `status`/`statusText`, then every response header (`set-cookie`
  * written through {@link Headers.getSetCookie} so multiple cookies stay distinct
  * instead of collapsing into one comma-joined header), then writes the body. A body
- * that completes with its first chunk ends `target` with that chunk, framed by its
+ * that completes with its first chunk, a `Uint8Array`, ends `target` with that chunk, framed by its
  * length; any other body is piped to `target` through `Readable.fromWeb`, which
  * honors backpressure and ends `target` when the body completes. Every listener it
  * adds to `target` is removed when the exchange ends. A `null` body ends `target`
@@ -346,13 +346,15 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 				if (first === undefined) await reader.cancel()
 				else if (
 					next === undefined ||
-					(await Promise.race([
-						next.then(
-							(chunk) => chunk.done,
-							() => false,
-						),
-						setImmediate(false),
-					]))
+					(first.value instanceof Uint8Array &&
+						(await Promise.race([
+							next.then(
+								(chunk) => chunk.done,
+								() => false,
+							),
+							wait.promise,
+							setImmediate(false),
+						])) === true)
 				) {
 					if (!target.destroyed) target.end(first.value)
 					await wait.promise
