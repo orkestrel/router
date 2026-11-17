@@ -10,7 +10,7 @@ import { addAbortListener } from 'node:events'
 import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { ReadableStream as WebReadableStream } from 'node:stream/web'
-import { createAbort } from '@orkestrel/abort'
+import { setImmediate } from 'node:timers/promises'
 import { ContractError, isArray, isError, preview } from '@orkestrel/contract'
 import { isAuthority, isEncryptedSocket } from './validators.js'
 
@@ -191,10 +191,12 @@ export function discardBody(message: IncomingMessage, discard: AbortController):
  *   holds no more than the message's own buffer whatever the upload size. A cancel
  *   discards the remainder in place, leaving the connection reusable, and so does the
  *   `finish` of `options.response`.
- * - A fresh `@orkestrel/abort` handle backs `request.signal`. It aborts when the peer
+ * - A fresh `AbortController` backs `request.signal`. It aborts when the peer
  *   disconnects: the message closes before it completed, or `options.response`
- *   closes before it ended. It also aborts when `options.signal` aborts, and on
- *   nothing else.
+ *   closes before it ended. It also aborts when `options.signal` aborts before the
+ *   exchange ends, and on nothing else. The exchange ends when `options.response`
+ *   closes, or, without a paired response, when the message closes; its listener on
+ *   `options.signal` is removed then.
  *
  * @param message - The raw `node:http` request
  * @param options - Optional `origin` override, paired `response`, and linked `signal`
@@ -229,16 +231,23 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
 	}
 
 	const parent = options?.signal
-	const abort = createAbort(parent === undefined ? undefined : { signal: parent })
+	const abort = new AbortController()
+	if (parent?.aborted === true) abort.abort(parent.reason)
+	const link =
+		parent === undefined || parent.aborted
+			? undefined
+			: addAbortListener(parent, () => abort.abort(parent.reason))
+	const response = options?.response
 	message.once('close', () => {
 		if (!message.complete)
 			abort.abort(new Error(`request to ${url.pathname} disconnected before completion`))
+		if (response === undefined || abort.signal.aborted) link?.[Symbol.dispose]()
 	})
-	const response = options?.response
 	if (response !== undefined)
 		response.once('close', () => {
 			if (!response.writableEnded)
 				abort.abort(new Error(`request to ${url.pathname} disconnected before response completed`))
+			link?.[Symbol.dispose]()
 		})
 
 	const init: RequestInit = { method, headers, signal: abort.signal }
@@ -268,10 +277,12 @@ export function buildRequest(message: IncomingMessage, options?: RequestOptions)
  * @remarks
  * Writes `status`/`statusText`, then every response header (`set-cookie`
  * written through {@link Headers.getSetCookie} so multiple cookies stay distinct
- * instead of collapsing into one comma-joined header), then pipes the body to
- * `target` through `Readable.fromWeb`, which honors backpressure and ends `target`
- * when the body completes; every listener it adds to `target` is removed when the
- * exchange ends. A `null` body ends `target` with no further writes. A
+ * instead of collapsing into one comma-joined header), then writes the body. A body
+ * that completes with its first chunk ends `target` with that chunk, framed by its
+ * length; any other body is piped to `target` through `Readable.fromWeb`, which
+ * honors backpressure and ends `target` when the body completes. Every listener it
+ * adds to `target` is removed when the exchange ends. A `null` body ends `target`
+ * with no further writes. A
  * response to a `HEAD` request, and a 1xx, 204, or 304 response, carries no body on
  * the wire (RFC 9112 section 6.3), so its body is cancelled unread and `target` ends.
  * When the peer closes first, the body is cancelled, even while it waits for its
@@ -299,10 +310,8 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 	const body = response.body
 	const status = response.status
 	const bodiless = target.req.method === 'HEAD' || status < 200 || status === 204 || status === 304
-	const source =
-		body instanceof WebReadableStream && !bodiless && !body.locked
-			? Readable.fromWeb(body)
-			: undefined
+	const reader =
+		body instanceof WebReadableStream && !bodiless && !body.locked ? body.getReader() : undefined
 	try {
 		target.statusCode = status
 		target.statusMessage = response.statusText
@@ -312,7 +321,7 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 		}
 		const cookies = response.headers.getSetCookie()
 		if (cookies.length > 0) target.setHeader('set-cookie', cookies)
-		if (body !== null && !(body instanceof WebReadableStream && (bodiless || source !== undefined)))
+		if (body !== null && !(body instanceof WebReadableStream && (bodiless || reader !== undefined)))
 			throw new ContractError('a response body must be an unlocked ReadableStream', {
 				code: 'placement',
 				context: {
@@ -322,11 +331,9 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 				},
 			})
 		if (body !== null && bodiless) await body.cancel()
-		if (source === undefined) await finished(target.end(), { cleanup: true })
-		else if (target.destroyed) source.destroy()
+		if (reader === undefined) await finished(target.end(), { cleanup: true })
+		else if (target.destroyed) await reader.cancel()
 		else {
-			source.once('error', (error) => target.destroy(error))
-			source.pipe(target)
 			// One `finish`, one `close`, and one `error` wait, removed when the first settles;
 			// `pipeline` and `finished` leave or double their listeners on a `ServerResponse`.
 			const wait = Promise.withResolvers<void>()
@@ -334,22 +341,58 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 			target.once('close', wait.resolve)
 			target.once('error', wait.reject)
 			try {
-				await wait.promise
+				const first = await Promise.race([reader.read(), wait.promise])
+				const next = first === undefined || first.done ? undefined : reader.read()
+				if (first === undefined) await reader.cancel()
+				else if (
+					next === undefined ||
+					(await Promise.race([
+						next.then(
+							(chunk) => chunk.done,
+							() => false,
+						),
+						setImmediate(false),
+					]))
+				) {
+					if (!target.destroyed) target.end(first.value)
+					await wait.promise
+				} else {
+					const source = Readable.fromWeb(
+						new WebReadableStream<Uint8Array>({
+							start: async (controller) => {
+								if (first.value !== undefined) controller.enqueue(first.value)
+								const second = await next.catch(() => undefined)
+								if (second?.done === true) controller.close()
+								else if (second !== undefined) controller.enqueue(second.value)
+							},
+							pull: async (controller) => {
+								const chunk = await reader.read()
+								if (chunk.done) controller.close()
+								else controller.enqueue(chunk.value)
+							},
+							cancel: (reason) => reader.cancel(reason),
+						}),
+					)
+					source.once('error', (error) => target.destroy(error))
+					source.pipe(target)
+					await wait.promise.catch((error: unknown) => {
+						source.destroy()
+						throw source.errored ?? error
+					})
+					if (!target.writableFinished && source.errored !== null) throw source.errored
+					if (!target.writableFinished) source.destroy()
+				}
 			} finally {
 				target.off('finish', wait.resolve)
 				target.off('close', wait.resolve)
 				target.off('error', wait.reject)
 			}
-			if (!target.writableFinished && source.errored !== null) throw source.errored
-			if (!target.writableFinished) source.destroy()
 		}
 	} catch (error) {
-		const failure: unknown = source?.errored ?? error
-		source?.destroy()
-		if (isError(failure) && 'code' in failure && failure.code === 'ERR_STREAM_PREMATURE_CLOSE')
-			return
+		await reader?.cancel(error).catch(() => undefined)
+		if (isError(error) && 'code' in error && error.code === 'ERR_STREAM_PREMATURE_CLOSE') return
 		target.destroy()
-		if (body instanceof WebReadableStream && !body.locked) await body.cancel(failure)
-		throw failure
+		if (body instanceof WebReadableStream && !body.locked) await body.cancel(error)
+		throw error
 	}
 }

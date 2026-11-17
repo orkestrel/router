@@ -4,7 +4,13 @@ import { getEventListeners } from 'node:events'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { ContractError } from '@orkestrel/contract'
-import { captureError, createRecorder, waitForCondition, waitForDelay } from '@orkestrel/test'
+import {
+	captureError,
+	createRecorder,
+	requireValue,
+	waitForCondition,
+	waitForDelay,
+} from '@orkestrel/test'
 import { buildRequest, buildURL, discardBody, readChunk, sendResponse } from '@src/server'
 import { createTestBody } from '../../setup.js'
 import {
@@ -407,9 +413,7 @@ describe('buildRequest', () => {
 		expect(Math.abs(none)).toBeLessThanOrEqual(RETENTION_BOUND)
 	}, 30000)
 
-	// Waits on the `@orkestrel/abort` pin: `createAbort({ signal })` links through
-	// `AbortSignal.any`, which Node 22 retains per call. Flip `it.fails` to `it` with the pin.
-	it.fails('frees what a run-lived option signal holds when each exchange ends (waits on the abort pin)', async () => {
+	it('frees what a run-lived option signal holds when each exchange ends', async () => {
 		const none = await measureRetention(RETENTION_CALLS, false)
 		const linked = await measureRetention(RETENTION_CALLS, true)
 
@@ -637,6 +641,64 @@ describe('sendResponse', () => {
 				error: 0,
 				finish: 0,
 			})
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
+
+	it('writes a body that completes in its first chunk with one end, framed by its length, leaving no listener', async () => {
+		const send = new ResponseSend()
+		const entries = createRecorder<[target: ServerResponse, entry: ListenerCounts]>()
+		const server = await startServer((_request, response) => {
+			entries.handler(response, countListeners(response))
+			void send.execute(new Response('whole'), response)
+		})
+		const client = await connectClient(server.port)
+		try {
+			client.write(ROOT_REQUEST)
+			const [response] = await client.wait(1, 'the small response arrives')
+			await send.done
+			const [target, entry] = requireValue(entries.calls[0], 'the server answered')
+			await waitForCondition('the response closes', () => target.closed)
+
+			expect(response?.body).toBe('whole')
+			expect(response?.complete).toBe(true)
+			expect(response?.headers['content-length']).toBe('5')
+			expect(response?.headers['transfer-encoding']).toBeUndefined()
+			expect(send.settled).toBe(true)
+			expect(subtractListeners(countListeners(target), entry)).toEqual({
+				close: 0,
+				error: 0,
+				end: 0,
+				aborted: 0,
+				readable: 0,
+				finish: 0,
+			})
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
+
+	it('streams a body whose second chunk follows the first, chunk-framed and whole', async () => {
+		const send = new ResponseSend()
+		const source = createTestBody(new Uint8Array(3).fill(97), 2)
+		const server = await startServer((_request, response) => {
+			void send.execute(new Response(source.body), response)
+		})
+		const client = await connectClient(server.port)
+		try {
+			client.write(ROOT_REQUEST)
+			const [response] = await client.wait(1, 'the streamed response arrives')
+			await send.done
+
+			expect(response?.body).toBe('aaaaaa')
+			expect(response?.complete).toBe(true)
+			expect(response?.headers['transfer-encoding']).toBe('chunked')
+			expect(response?.headers['content-length']).toBeUndefined()
+			expect(source.pulls).toBe(2)
+			expect(send.settled).toBe(true)
 		} finally {
 			client.destroy()
 			await server.close()
