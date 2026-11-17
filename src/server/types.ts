@@ -19,7 +19,10 @@ import type { ServerResponse } from 'node:http'
  * - `response` — the paired `node:http` response. When provided, closing its
  *   connection before `writableEnded` aborts the built request's signal, and its
  *   `finish` discards whatever request body is left unread.
- * - `signal` — a caller's signal; aborting it aborts the built request's signal.
+ * - `signal` — a caller's signal; aborting it aborts the built request's signal. On
+ *   Node 22, a signal that outlives its exchange keeps one `AbortSignal.any` link per
+ *   `buildRequest` call reachable for as long as the signal lives, so pass a signal that
+ *   lives as long as one exchange.
  */
 export interface RequestOptions {
 	readonly origin?: string
