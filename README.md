@@ -6,8 +6,8 @@
 > `node:http` adapter all composing that same engine.
 
 Register routes on a `Router`, or hand them to a `Dispatcher` where they are
-method-dimensioned; reach for `createNavigator` in the browser and `createListener` behind
-`node:http`. Part of the `@orkestrel` line, built on `@orkestrel/contract` for validation,
+method-dimensioned; reach for `createNavigator` in the browser and `buildRequest` with
+`sendResponse` behind `node:http`. Part of the `@orkestrel` line, built on `@orkestrel/contract` for validation,
 `@orkestrel/emitter` for the observable surface, and `@orkestrel/abort` for cancellation.
 
 ## Install
@@ -18,7 +18,7 @@ npm install @orkestrel/router
 
 ## Requirements
 
-- Node.js >= 22.12.0
+- Node.js >= 22.18.0
 - ESM and CommonJS for the core and `./server` entries; the `./browser` entry is ESM only.
 - Server and browser environments both supported
 
@@ -47,7 +47,7 @@ Path params are inferred at the type level from the literal pattern through the
 `PathParams` type, and the `defineRoute` function pins a `RouteInput`'s path so literal
 inference survives across call sites. The `./browser` entry adds the `createNavigator`
 function for headless History or hash navigation; the `./server` entry adds the
-`buildRequest`, `sendResponse`, and `createListener` functions for `node:http`.
+`buildRequest` and `sendResponse` functions for `node:http`.
 
 ## Guide
 

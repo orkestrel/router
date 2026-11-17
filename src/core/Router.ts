@@ -8,12 +8,12 @@ import type {
 	RouterOptions,
 } from './types.js'
 import { ContractError, isString, preview } from '@orkestrel/contract'
-import { collectInputs, compareSpecificity, compilePath, matchPath } from './helpers.js'
+import { collectInputs, compareSpecificity, compilePath, encodePath, matchPath } from './helpers.js'
 import { Group } from './Group.js'
 
 /**
  * Represents the path-matching + registry engine — registers `{ path, meta, name? }`
- * entries (compiling each path once) and resolves an encoded pathname to the most
+ * entries (compiling each path once) and resolves raw or encoded text to the most
  * specific matching entry. The shared machine both the `Navigator` (browser) and
  * the `Dispatcher` (core, method-dimensioned) compose.
  *
@@ -61,14 +61,17 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	add(entry: RouteEntry<Meta>): void
 	add(entries: ReadonlyArray<RouteEntry<Meta>>): void
 	add(input: RouteEntry<Meta> | ReadonlyArray<RouteEntry<Meta>>): void {
-		for (const entry of collectInputs(input)) this.#register(entry)
+		// Every entry is admitted before any registers, so a refused batch changes nothing.
+		const admitted = collectInputs(input).map((entry) => this.#admit(entry))
+		for (const { entry, compiled, key } of admitted) this.#register({ entry, compiled }, key)
 	}
 
 	match(pathname: string, answers?: AnswerHandler<Meta>): RouterMatch<Meta> | undefined {
+		const text = encodePath(pathname)
 		// A later record replaces the leader only when it ranks strictly higher: a tie keeps the earlier.
 		const selected = this.#records.reduce((current, record, index) => {
 			if (answers !== undefined && !answers(record.entry.meta)) return current
-			if (!record.compiled.regex.test(pathname)) return current
+			if (!record.compiled.regex.test(text)) return current
 			const leader = this.#records[current]
 			return leader === undefined ||
 				compareSpecificity(record.compiled.specificity, leader.compiled.specificity) < 0
@@ -76,7 +79,7 @@ export class Router<Meta> implements RouterInterface<Meta> {
 				: current
 		}, -1)
 		const best = this.#records[selected]
-		const params = best === undefined ? undefined : matchPath(best.compiled, pathname)
+		const params = best === undefined ? undefined : matchPath(best.compiled, text)
 		if (best === undefined || params === undefined) return undefined
 		return {
 			path: best.entry.path,
@@ -89,8 +92,9 @@ export class Router<Meta> implements RouterInterface<Meta> {
 	entries(): ReadonlyArray<RouteEntry<Meta>>
 	entries(pathname: string): ReadonlyArray<RouteEntry<Meta>>
 	entries(pathname?: string): ReadonlyArray<RouteEntry<Meta>> {
+		const text = pathname === undefined ? undefined : encodePath(pathname)
 		return this.#records
-			.filter((record) => pathname === undefined || record.compiled.regex.test(pathname))
+			.filter((record) => text === undefined || record.compiled.regex.test(text))
 			.map((record) => record.entry)
 	}
 
@@ -103,8 +107,12 @@ export class Router<Meta> implements RouterInterface<Meta> {
 		this.#index.clear()
 	}
 
-	// A keyed record replaces the earlier one in place (last write wins); any other record appends.
-	#register(entry: RouteEntry<Meta>): void {
+	// Check the path, compile it, and compute the entry's key, registering nothing.
+	#admit(entry: RouteEntry<Meta>): {
+		readonly entry: RouteEntry<Meta>
+		readonly compiled: CompiledPath
+		readonly key: string | undefined
+	} {
 		if (!isString(entry.path))
 			throw new ContractError('a route path must be a string', {
 				code: 'literal',
@@ -119,8 +127,14 @@ export class Router<Meta> implements RouterInterface<Meta> {
 					received: preview(entry.path),
 				},
 			})
-		const record = { entry, compiled: compilePath(entry.path, this.#sensitive) }
-		const key = this.#key?.(entry)
+		return { entry, compiled: compilePath(entry.path, this.#sensitive), key: this.#key?.(entry) }
+	}
+
+	// A keyed record replaces the earlier one in place (last write wins); any other record appends.
+	#register(
+		record: { readonly entry: RouteEntry<Meta>; readonly compiled: CompiledPath },
+		key: string | undefined,
+	): void {
 		const existing = key === undefined ? undefined : this.#index.get(key)
 		if (existing !== undefined) {
 			this.#records[existing] = record

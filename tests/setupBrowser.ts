@@ -265,3 +265,28 @@ export function startNavigator(
 	navigator.start()
 	return navigator
 }
+
+/**
+ * Lists the route patterns the Navigator door rows drive: literals the path encoder changes
+ * (`é`, `{` and `}`, a space, `^`) beside a plain one.
+ */
+export const DOOR_PATHS: readonly string[] = Object.freeze([
+	'/café',
+	'/{c}',
+	'/a b',
+	'/^w',
+	'/plain',
+])
+
+/**
+ * Builds the door-row route table with one pattern first, so the default fallback names it.
+ *
+ * @param first - The pattern to register first
+ * @returns The routes, each carrying its own pattern as its page
+ */
+export function buildDoorRoutes(first: string): readonly PageRoute[] {
+	return [first, ...DOOR_PATHS.filter((path) => path !== first)].map((path) => ({
+		path,
+		meta: { page: path },
+	}))
+}

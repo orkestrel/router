@@ -6,6 +6,7 @@ import type {
 	DispatchResult,
 	Method,
 	RouteContext,
+	RouteEntry,
 	RouteInput,
 	RouteRecord,
 	RouterInterface,
@@ -92,7 +93,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 	add<Path extends string>(input: RouteInput<Path, TState>): void
 	add(inputs: ReadonlyArray<RouteInput<string, TState>>): void
 	add(input: RouteInput<string, TState> | ReadonlyArray<RouteInput<string, TState>>): void {
-		for (const route of collectInputs(input)) this.#register(route)
+		this.#router.add(collectInputs(input).map((route) => this.#admit(route)))
 	}
 
 	group(prefix: string): DispatchGroupInterface<TState> {
@@ -144,9 +145,8 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 		this.#emitter.destroy()
 	}
 
-	// Validate the registration boundary (handler function, known method), then delegate
-	// path validation + dedup to the underlying `Router`'s own guard.
-	#register(input: RouteInput<string, TState>): void {
+	// Check the handler and method and build the router entry; the router admits the path.
+	#admit(input: RouteInput<string, TState>): RouteEntry<RouteRecord<TState>> {
 		if (!isFunction(input.handler))
 			throw new ContractError('a route handler must be a function', {
 				code: 'literal',
@@ -166,7 +166,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 				},
 			})
 		const name = input.name
-		this.#router.add({
+		return {
 			path: input.path,
 			...(name === undefined ? {} : { name }),
 			meta: {
@@ -174,7 +174,7 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 				handler: input.handler,
 				...(name === undefined ? {} : { name }),
 			},
-		})
+		}
 	}
 
 	// Registered methods in order, then `HEAD` when `GET` is present, then `OPTIONS`; empty on a miss.
