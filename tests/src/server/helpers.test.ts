@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http'
+import type { ListenerCounts } from '../../setupServer.js'
 import { getEventListeners } from 'node:events'
 import net from 'node:net'
 import { describe, expect, it } from 'vitest'
@@ -9,16 +10,21 @@ import { createTestBody } from '../../setup.js'
 import {
 	captureBody,
 	collectResponse,
+	connectClient,
+	countListeners,
 	countResponseListeners,
 	createMessage,
 	HEAD_BODY_COUNT,
+	IdleBody,
 	measureRetention,
 	receiveMessage,
 	ResponseSend,
 	RETENTION_BOUND,
 	RETENTION_CALLS,
+	ROOT_REQUEST,
 	startPausedResponse,
 	startServer,
+	subtractListeners,
 } from '../../setupServer.js'
 
 // The test mirror of `src/server/helpers.ts` — pins each conversion helper on its own:
@@ -156,6 +162,18 @@ describe('readChunk', () => {
 		await expect(readChunk(message, signal)).rejects.toThrow(
 			'request body closed before it completed',
 		)
+	})
+
+	it('removes its readable listener when a close ends the wait', async () => {
+		const message = createMessage('/upload', false)
+		const signal = new AbortController().signal
+		const pending = readChunk(message, signal)
+		message.destroy()
+
+		await expect(pending).rejects.toThrow('request body closed before it completed')
+		expect(message.listenerCount('readable')).toBe(0)
+		expect(message.listenerCount('close')).toBe(0)
+		expect(getEventListeners(signal, 'abort')).toEqual([])
 	})
 
 	it('throws the abort reason when the signal aborts, while waiting or before the call', async () => {
@@ -558,6 +576,72 @@ describe('sendResponse', () => {
 		expect(final.close).toBeLessThanOrEqual(pressured.close)
 		expect(final.error).toBeLessThanOrEqual(pressured.error)
 	}, 10000)
+
+	it('settles and cancels the body when the peer closed before the call, leaving no listener', async () => {
+		const send = new ResponseSend()
+		const cancels = createRecorder<[unknown]>()
+		const received = Promise.withResolvers<[ServerResponse, ListenerCounts]>()
+		const closed = Promise.withResolvers<void>()
+		const server = await startServer((_request, response) => {
+			received.resolve([response, countListeners(response)])
+			response.once('close', () => closed.resolve())
+		})
+		const client = await connectClient(server.port)
+		try {
+			client.write(ROOT_REQUEST)
+			const [target, entry] = await received.promise
+			client.destroy()
+			await closed.promise
+			void send.execute(new Response(new IdleBody('head', cancels).body), target)
+			await waitForCondition('the send settles', () => send.settled || send.failure !== undefined)
+			await waitForCondition('the body is cancelled', () => cancels.count === 1)
+
+			expect(send.settled).toBe(true)
+			expect(send.failure).toBeUndefined()
+			expect(subtractListeners(countListeners(target), entry)).toEqual({
+				close: 0,
+				error: 0,
+				end: 0,
+				aborted: 0,
+				readable: 0,
+				finish: 0,
+			})
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
+
+	it('rejects and cancels the body when the response emits an error during the wait, throwing nothing at the emit', async () => {
+		const send = new ResponseSend()
+		const cancels = createRecorder<[unknown]>()
+		const failure = new Error('the response failed')
+		const emitted = Promise.withResolvers<[unknown, ServerResponse, ListenerCounts]>()
+		const server = await startServer((_request, response) => {
+			const entry = countListeners(response)
+			void send.execute(new Response(new IdleBody('head', cancels).body), response)
+			emitted.resolve([captureError(() => response.emit('error', failure)), response, entry])
+		})
+		const client = await connectClient(server.port)
+		try {
+			client.write(ROOT_REQUEST)
+			const [thrown, target, entry] = await emitted.promise
+			await waitForCondition('the send settles', () => send.settled || send.failure !== undefined)
+			await waitForCondition('the body is cancelled', () => cancels.count === 1)
+
+			expect(thrown).toBeUndefined()
+			expect(send.settled).toBe(false)
+			expect(send.failure).toBe(failure)
+			expect(subtractListeners(countListeners(target), entry)).toMatchObject({
+				close: 0,
+				error: 0,
+				finish: 0,
+			})
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
 
 	it('ends the target immediately for a null body', async () => {
 		const server = await startServer((_request, response) => {

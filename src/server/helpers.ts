@@ -323,17 +323,23 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 			})
 		if (body !== null && bodiless) await body.cancel()
 		if (source === undefined) await finished(target.end(), { cleanup: true })
+		else if (target.destroyed) source.destroy()
 		else {
 			source.once('error', (error) => target.destroy(error))
 			source.pipe(target)
-			// One `finish` and one `close` wait, removed when either settles; `pipeline` and
-			// `finished` leave or double their listeners on a `ServerResponse`.
+			// One `finish`, one `close`, and one `error` wait, removed when the first settles;
+			// `pipeline` and `finished` leave or double their listeners on a `ServerResponse`.
 			const wait = Promise.withResolvers<void>()
 			target.once('finish', wait.resolve)
 			target.once('close', wait.resolve)
-			await wait.promise
-			target.off('finish', wait.resolve)
-			target.off('close', wait.resolve)
+			target.once('error', wait.reject)
+			try {
+				await wait.promise
+			} finally {
+				target.off('finish', wait.resolve)
+				target.off('close', wait.resolve)
+				target.off('error', wait.reject)
+			}
 			if (!target.writableFinished && source.errored !== null) throw source.errored
 			if (!target.writableFinished) source.destroy()
 		}
