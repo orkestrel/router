@@ -303,6 +303,9 @@ describe('Dispatcher — registration boundary guard', () => {
 		expect(() =>
 			dispatcher.add({ method: 'GET', path: '/health', handler: malformedHandler }),
 		).toThrow(expect.objectContaining({ code: 'literal' }))
+		expect(() =>
+			dispatcher.add({ method: 'GET', path: '/health', handler: malformedHandler }),
+		).toThrow('Dispatcher: input.handler must be function')
 		dispatcher.destroy()
 	})
 
@@ -318,6 +321,9 @@ describe('Dispatcher — registration boundary guard', () => {
 		expect(() =>
 			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
 		).toThrow(expect.objectContaining({ code: 'literal' }))
+		expect(() =>
+			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
+		).toThrow('Dispatcher: input.method must be GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS')
 		expect(() =>
 			dispatcher.add({ method: badMethod, path: '/health', handler: () => new Response('ok') }),
 		).toThrow(

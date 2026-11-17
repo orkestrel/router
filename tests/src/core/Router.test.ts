@@ -68,6 +68,9 @@ describe('Router — registration', () => {
 		expect(() => router.add({ path: malformedPath, meta: { page: 'a' } })).toThrow(
 			expect.objectContaining({ code: 'literal' }),
 		)
+		expect(() => router.add({ path: malformedPath, meta: { page: 'a' } })).toThrow(
+			'Router: entry.path must be string',
+		)
 	})
 
 	it('throws a ContractError coded `pattern` when path does not start with "/"', () => {

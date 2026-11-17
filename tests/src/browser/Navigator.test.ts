@@ -1318,6 +1318,13 @@ describe('Navigator — construction guards', () => {
 					guard: malformedGuard,
 				}),
 		).toThrow(expect.objectContaining({ code: 'literal' }))
+		expect(
+			() =>
+				new Navigator<PageMeta>({
+					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+					guard: malformedGuard,
+				}),
+		).toThrow('Navigator: options.guard must be function or undefined')
 	})
 
 	it('throws a ContractError coded `literal` when fallback is not a string', () => {
@@ -1338,6 +1345,13 @@ describe('Navigator — construction guards', () => {
 					fallback: malformedFallback,
 				}),
 		).toThrow(expect.objectContaining({ code: 'literal' }))
+		expect(
+			() =>
+				new Navigator<PageMeta>({
+					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+					fallback: malformedFallback,
+				}),
+		).toThrow('Navigator: options.fallback must be string or undefined')
 	})
 
 	it('throws a ContractError coded `literal` when base is not a string', () => {
@@ -1358,6 +1372,13 @@ describe('Navigator — construction guards', () => {
 					base: malformedBase,
 				}),
 		).toThrow(expect.objectContaining({ code: 'literal' }))
+		expect(
+			() =>
+				new Navigator<PageMeta>({
+					routes: [{ path: '/tokens', meta: { page: 'tokens' } }],
+					base: malformedBase,
+				}),
+		).toThrow('Navigator: options.base must be string or undefined')
 	})
 
 	it('throws a ContractError coded `pattern` from the underlying Router when a route path is malformed', () => {

@@ -11,6 +11,7 @@ import {
 	isRecord,
 	isString,
 	preview,
+	refuseValue,
 } from '@orkestrel/contract'
 import { createRouter, joinPaths } from '@src/core'
 import { computeNavigationKey, findAnchor, resolveLocationPath } from './helpers.js'
@@ -74,33 +75,24 @@ export class Navigator<Meta> implements NavigatorInterface<Meta> {
 	#restoring = false
 
 	constructor(options: NavigatorOptions<Meta>) {
-		if (options.guard !== undefined && !isFunction(options.guard))
-			throw new ContractError('a navigator guard must be a function when defined', {
-				code: 'literal',
-				context: {
-					path: ['options', 'guard'],
-					limit: 'function or undefined',
-					received: preview(options.guard),
-				},
-			})
-		if (options.fallback !== undefined && !isString(options.fallback))
-			throw new ContractError('a navigator fallback must be a string when defined', {
-				code: 'literal',
-				context: {
-					path: ['options', 'fallback'],
-					limit: 'string or undefined',
-					received: preview(options.fallback),
-				},
-			})
-		if (options.base !== undefined && !isString(options.base))
-			throw new ContractError('a navigator base must be a string when defined', {
-				code: 'literal',
-				context: {
-					path: ['options', 'base'],
-					limit: 'string or undefined',
-					received: preview(options.base),
-				},
-			})
+		refuseValue(
+			options.guard,
+			(value): value is NavigatorOptions<Meta>['guard'] => value === undefined || isFunction(value),
+			'Navigator',
+			{ path: ['options', 'guard'], limit: 'function or undefined', code: 'literal' },
+		)
+		refuseValue(
+			options.fallback,
+			(value): value is string | undefined => value === undefined || isString(value),
+			'Navigator',
+			{ path: ['options', 'fallback'], limit: 'string or undefined', code: 'literal' },
+		)
+		refuseValue(
+			options.base,
+			(value): value is string | undefined => value === undefined || isString(value),
+			'Navigator',
+			{ path: ['options', 'base'], limit: 'string or undefined', code: 'literal' },
+		)
 		this.#history = options.history ?? false
 		this.#base = options.base
 		this.#intercept = options.intercept ?? false

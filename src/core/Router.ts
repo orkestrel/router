@@ -7,7 +7,7 @@ import type {
 	RouterMatch,
 	RouterOptions,
 } from './types.js'
-import { ContractError, isString, preview } from '@orkestrel/contract'
+import { ContractError, isString, preview, refuseValue } from '@orkestrel/contract'
 import { collectInputs, compareSpecificity, compilePath, encodePath, matchPath } from './helpers.js'
 import { Group } from './Group.js'
 
@@ -113,11 +113,11 @@ export class Router<Meta> implements RouterInterface<Meta> {
 		readonly compiled: CompiledPath
 		readonly key: string | undefined
 	} {
-		if (!isString(entry.path))
-			throw new ContractError('a route path must be a string', {
-				code: 'literal',
-				context: { path: ['entry', 'path'], limit: 'string', received: preview(entry.path) },
-			})
+		refuseValue(entry.path, isString, 'Router', {
+			path: ['entry', 'path'],
+			limit: 'string',
+			code: 'literal',
+		})
 		if (!entry.path.startsWith('/'))
 			throw new ContractError('a route path must start with "/"', {
 				code: 'pattern',

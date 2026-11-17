@@ -14,7 +14,7 @@ import type {
 } from './types.js'
 import type { EmitterInterface } from '@orkestrel/emitter'
 import { Emitter } from '@orkestrel/emitter'
-import { ContractError, isFunction, isString, preview } from '@orkestrel/contract'
+import { isFunction, isString, refuseValue } from '@orkestrel/contract'
 import { HTTP_METHODS } from './constants.js'
 import { collectInputs, computeDispatchKey } from './helpers.js'
 import { parseMethod } from './parsers.js'
@@ -147,24 +147,17 @@ export class Dispatcher<TState = undefined> implements DispatcherInterface<TStat
 
 	// Check the handler and method and build the router entry; the router admits the path.
 	#admit(input: RouteInput<string, TState>): RouteEntry<RouteRecord<TState>> {
-		if (!isFunction(input.handler))
-			throw new ContractError('a route handler must be a function', {
-				code: 'literal',
-				context: {
-					path: ['input', 'handler'],
-					limit: 'function',
-					received: preview(input.handler),
-				},
-			})
-		if (!isString(input.method) || !HTTP_METHODS.has(input.method))
-			throw new ContractError('a route method must be a registrable HTTP method', {
-				code: 'literal',
-				context: {
-					path: ['input', 'method'],
-					limit: [...HTTP_METHODS].join(', '),
-					received: preview(input.method),
-				},
-			})
+		refuseValue(input.handler, isFunction, 'Dispatcher', {
+			path: ['input', 'handler'],
+			limit: 'function',
+			code: 'literal',
+		})
+		refuseValue(
+			input.method,
+			(value): value is Method => isString(value) && HTTP_METHODS.has(value),
+			'Dispatcher',
+			{ path: ['input', 'method'], limit: [...HTTP_METHODS].join(', '), code: 'literal' },
+		)
 		const name = input.name
 		return {
 			path: input.path,

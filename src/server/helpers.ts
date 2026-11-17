@@ -11,7 +11,7 @@ import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { ReadableStream as WebReadableStream } from 'node:stream/web'
 import { setImmediate } from 'node:timers/promises'
-import { ContractError, isArray, isError, preview } from '@orkestrel/contract'
+import { ContractError, isArray, isCodedError, preview } from '@orkestrel/contract'
 import { isAuthority, isEncryptedSocket } from './validators.js'
 
 /**
@@ -392,7 +392,7 @@ export async function sendResponse(response: Response, target: ServerResponse): 
 		}
 	} catch (error) {
 		await reader?.cancel(error).catch(() => undefined)
-		if (isError(error) && 'code' in error && error.code === 'ERR_STREAM_PREMATURE_CLOSE') return
+		if (isCodedError(error) && error.code === 'ERR_STREAM_PREMATURE_CLOSE') return
 		target.destroy()
 		if (body instanceof WebReadableStream && !body.locked) await body.cancel(error)
 		throw error
