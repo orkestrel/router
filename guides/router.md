@@ -253,7 +253,9 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    name used twice (`/a/:id/b/:id`). It also throws, with code `pattern`, for
    a pattern holding `\`, tab, line feed, or carriage return anywhere, because
    a URL parser reads `\` as a separator and deletes the others; the `limit`
-   names each one and its escape (`%5C`, `%09`, `%0A`, `%0D`). The matcher
+   names each one and its escape (`%5C`, `%09`, `%0A`, `%0D`). 0.0.22 refused
+   only the wildcard outside the final segment and registered every other
+   pattern this item names. The matcher
    compares one canonical text, which `encodePath` writes from its own table,
    `PATH_ENCODE_SET`, on both sides. The table is the URL Standard's path
    percent-encode set (Last Updated 2026-11-14, snapshot `47721bbd`) plus
@@ -264,7 +266,10 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    `router.entries`, and `matchPath`. So `/café` matches `/café` and
    `/caf%C3%A9`, `/^w` matches `/^w` and `/%5Ew`, and `router.match` takes path
    text raw or encoded. Nothing is decoded before matching, so `/us%65rs`
-   does not match `/users`, and `/100%25` does not match `/100%`. Each capture is decoded with
+   does not match `/users`, and `/100%25` does not match `/100%`. In 0.0.22
+   the matcher compared the pattern as written with the text as given, so
+   `/café` answered 404 through `Dispatcher.handle`, whose pathname is
+   encoded, and `/a|b` missed `/a%7Cb`, the form Chromium writes. Each capture is decoded with
    `decodeParam` and is opaque text the router refuses nothing in:
    `/files/*rest` captures `../../etc/passwd` from
    `/files/..%2F..%2Fetc%2Fpasswd`. A consumer that maps a capture to a file
@@ -276,7 +281,8 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    `/files/:name.json` outranks `/files/:name` in either registration order.
    A shorter pattern that is a prefix of a longer one ranks below it. A
    remaining tie, such as `/t/:a.js` against `/t/:b.js`, goes to the earlier
-   registration.
+   registration. In 0.0.22 only the tier counted, so the earlier registration
+   of `/files/:name` and `/files/:name.json` won.
 5. **Trailing slash is insensitive.** A single trailing slash on the request
    path is always optional, folded both at registration (`canonicalizePath`)
    and at match time — except the root `/` and the empty pattern, which are
@@ -286,7 +292,9 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
    A to Z with a to z during matching, in literal text and in escape hex,
    without altering the pattern's own stored casing. No other letter folds:
    `/CAFÉ` misses `/café` under either setting, while `/CAFé` and
-   `/caf%c3%a9` hit it under `sensitive: false`.
+   `/caf%c3%a9` hit it under `sensitive: false`. In 0.0.22 `sensitive: false`
+   folded every letter the regular expression `i` flag folds, so `/CAFÉ` hit
+   `/café`.
 7. **Dedup with `key`.** When `RouterOptions.key` is set, an entry whose
    computed key already exists replaces the prior entry in place (last write
    wins, no engine rebuild); `Dispatcher` always constructs its internal
@@ -398,7 +406,10 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     form, with `RequestOptions.origin` set as well: a host with an optional
     port, with no path, userinfo, whitespace, or port above 65535, on one
     field line only (RFC 9112 section 3.2). A consuming server maps the throw
-    to 400.
+    to 400. In 0.0.22 `buildRequest` resolved the target against the origin
+    with no check of its form or of the `Host` header: `//evil.example/admin`
+    took the authority `evil.example`, the asterisk form read as the path `/*`,
+    and the first of several `Host` lines won.
 21. **The request signal aborts on a peer disconnect or on
     `RequestOptions.signal`, and on nothing else.** `buildRequest` mints an
     `@orkestrel/abort` handle linked to `RequestOptions.signal` and builds the
@@ -422,7 +433,8 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     the body, even one waiting for its next chunk, and resolves. When Node
     refuses a header or the body fails, it destroys the target and rejects, so
     the client reads an aborted response, never a truncated one that looks
-    complete.
+    complete. In 0.0.22 a failed body ended the target and `sendResponse`
+    resolved, so the client read the truncated response as complete.
 24. **Header fidelity.** `buildRequest` copies every incoming header
     (multi-value headers comma-joined, except `set-cookie`, appended
     individually); `sendResponse` writes every outgoing header and re-derives
@@ -571,7 +583,10 @@ dispatcher.destroy() // tears down the #emitter; router.entries() is still valid
 ### Hash-mode navigation
 
 A `Navigator` in hash mode dispatches on `location.hash`, updates `active` after each
-`hashchange`, and commits a `navigate` call as it pushes the hash:
+`hashchange`, and commits a `navigate` call as it pushes the hash. In 0.0.22 a hash
+`navigate` set `location.hash` and committed after the `hashchange` fired. 0.0.23
+removes the 0.0.22 `navigator.match` method, and `navigator.router.match` answers the
+same lookup, as the following example shows:
 
 ```ts
 import { createNavigator } from '@orkestrel/router/browser'
@@ -611,7 +626,9 @@ navigator.start() // binds popstate + same-origin <a> click interception
 A guard may veto synchronously or asynchronously; a superseded guard's
 verdict is discarded through its own `signal`. A `navigate` call or an intercepted
 link asks the guard before the URL moves, so a vetoed one leaves the address bar
-alone. When the browser moves first, through back, forward, a native fragment
+alone. In 0.0.22 both moved the URL first and asked the guard after, and no veto moved
+the browser back, so the address bar kept the vetoed location while `active` kept the
+previous match. When the browser moves first, through back, forward, a native fragment
 link, or an address-bar edit, a veto of an entry the navigator wrote moves the
 browser back to the entry `active` describes. For an entry it did not write, the
 address bar keeps the vetoed location while `active` keeps the previous match:
@@ -640,7 +657,11 @@ The server face converts and writes, and your server composes three calls:
 `buildRequest`, `Dispatcher.handle`, and `sendResponse`. The error policy is
 yours. `buildRequest` throws a `ContractError` for a refused target or `Host`,
 which a server can answer with 400, and `sendResponse` has already destroyed
-the connection when it rejects.
+the connection when it rejects. 0.0.22 exported a `createListener` function
+that composed these three calls and answered a throw before the headers went
+out with a bare 500. 0.0.23 removes it, with `handleListenerRequest`,
+`ListenerFunction`, and `StateFunction`, so compose the calls as the following
+example does:
 
 ```ts
 import { buildRequest, sendResponse } from '@orkestrel/router/server'

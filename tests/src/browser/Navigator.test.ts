@@ -29,8 +29,8 @@ import {
 // `src:browser` project) against real `location.hash` / `history` + real DOM
 // events (no mocks). Covers hash mode, history mode (base stripping +
 // link interception), the guard matrix (sync veto, async allow/veto, supersede,
-// throw), the `navigate` event payload, lifecycle idempotence, and the pure
-// `match` lookup.
+// throw), the `navigate` event payload, lifecycle idempotence, and a lookup
+// through the `router` getter.
 
 // Every navigator started in a test is tracked and destroyed after it, so no
 // `hashchange`/`popstate`/click listener leaks across cases (the shared teardown

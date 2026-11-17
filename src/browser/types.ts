@@ -47,8 +47,8 @@ export type NavigatorEventMap<Meta> = {
  *
  * @remarks
  * - `routes` — the route entries to register once with the shared core
- *   `Router` (each `path` compiled once); registration order does NOT decide
- *   precedence — specificity does (literal-over-param-over-wildcard).
+ *   `Router` (each `path` compiled once); specificity decides precedence (tier,
+ *   then literal length), and registration order decides only a remaining tie.
  * - `history` — `false` (default, hash mode: `#/…` + `hashchange`, zero
  *   server configuration) or `true` (history mode: `pushState`/`popstate`).
  * - `base` — a history-mode path prefix stripped from `location.pathname`

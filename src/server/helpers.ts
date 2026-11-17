@@ -140,6 +140,7 @@ export async function readChunk(
 	// Either outcome only ends the wait: the next call reads the abort, the close, or the chunk.
 	await wait.promise
 	message.off('close', wait.resolve)
+	// Only a close leaves `readable` attached; a needless removal stops a flow `discardBody` resumed.
 	if (message.closed) message.off('readable', wait.resolve)
 	abort[Symbol.dispose]()
 	return readChunk(message, signal)
