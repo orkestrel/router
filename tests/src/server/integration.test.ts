@@ -1,6 +1,6 @@
 import type { ListenerStep } from '../../setupServer.js'
 import { describe, expect, it } from 'vitest'
-import { EventEmitter, once } from 'node:events'
+import { EventEmitter, getEventListeners, once } from 'node:events'
 import http from 'node:http'
 import { createRecorder, requireValue, waitForCondition, waitForDelay } from '@orkestrel/test'
 import { readErrorCode } from '@orkestrel/test/server'
@@ -555,30 +555,61 @@ describe('row S4: an idle body cancels on disconnect', () => {
 })
 
 describe('row 7: the request signal aborts on a peer disconnect or on the option signal, and on nothing else', () => {
-	it('aborts when the option signal aborts, with its reason', async () => {
+	it('aborts when the option signal aborts while the exchange is open, with its reason', async () => {
+		const parent = new AbortController()
+		const requests = createRecorder<[Request, http.ServerResponse]>()
+		const server = await startServer((message, response) => {
+			requests.handler(buildRequest(message, { response, signal: parent.signal }), response)
+		})
+		const client = await connectClient(server.port)
+		try {
+			client.write(ROOT_REQUEST)
+			await waitForCondition('the server builds the request', () => requests.count === 1)
+			const [request, response] = requireValue(requests.calls[0], 'the server built a request')
+			const reason = new Error('the server is stopping')
+			expect(request.signal.aborted).toBe(false)
+			parent.abort(reason)
+			response.end('ok')
+			const [answer] = await client.wait(1, 'the response arrives')
+
+			expect(request.signal.aborted).toBe(true)
+			expect(request.signal.reason).toBe(reason)
+			expect(answer?.body).toBe('ok')
+			expect(getEventListeners(parent.signal, 'abort')).toEqual([])
+		} finally {
+			client.destroy()
+			await server.close()
+		}
+	})
+
+	it('leaves no listener on the option signal and does not abort after the exchange ends', async () => {
 		const parent = new AbortController()
 		const requests = createRecorder<[Request]>()
+		const closed = Promise.withResolvers<void>()
 		const server = await startServer((message, response) => {
 			requests.handler(buildRequest(message, { response, signal: parent.signal }))
+			response.once('close', () => closed.resolve())
 			response.end('ok')
 		})
 		try {
 			expect(await (await fetch(server.url)).text()).toBe('ok')
+			await closed.promise
 			const [request] = requireValue(requests.calls[0], 'the server built a request')
-			expect(request.signal.aborted).toBe(false)
+			const listeners = getEventListeners(parent.signal, 'abort')
 			parent.abort('shutdown')
 
-			expect(request.signal.aborted).toBe(true)
-			expect(request.signal.reason).toBe('shutdown')
+			expect(listeners).toEqual([])
+			expect(request.signal.aborted).toBe(false)
 		} finally {
 			await server.close()
 		}
 	})
 
-	it('is born aborted when the option signal already aborted', async () => {
+	it('is born aborted with the very reason object when the option signal already aborted', async () => {
+		const stopped = AbortSignal.abort()
 		const requests = createRecorder<[Request]>()
 		const server = await startServer((message, response) => {
-			requests.handler(buildRequest(message, { response, signal: AbortSignal.abort('stopped') }))
+			requests.handler(buildRequest(message, { response, signal: stopped }))
 			response.end('ok')
 		})
 		try {
@@ -586,7 +617,33 @@ describe('row 7: the request signal aborts on a peer disconnect or on the option
 			const [request] = requireValue(requests.calls[0], 'the server built a request')
 
 			expect(request.signal.aborted).toBe(true)
-			expect(request.signal.reason).toBe('stopped')
+			expect(request.signal.reason).toBeInstanceOf(DOMException)
+			expect(request.signal.reason).toBe(stopped.reason)
+		} finally {
+			await server.close()
+		}
+	})
+
+	it('keeps its own disconnect reason when the client disconnects before the option signal aborts', async () => {
+		const parent = new AbortController()
+		const requests = createRecorder<[Request]>()
+		const server = await startServer((message, response) => {
+			requests.handler(buildRequest(message, { response, signal: parent.signal }))
+		})
+		const client = await connectClient(server.port)
+		try {
+			client.write('GET /stream HTTP/1.1\r\nHost: app.local\r\n\r\n')
+			await waitForCondition('the server builds the request', () => requests.count === 1)
+			const [request] = requireValue(requests.calls[0], 'the server built a request')
+			client.destroy()
+			await waitForCondition('the request signal aborts', () => request.signal.aborted)
+			const reason: unknown = request.signal.reason
+			const listeners = getEventListeners(parent.signal, 'abort')
+			parent.abort(new Error('the server is stopping'))
+
+			expect(request.signal.reason).toBe(reason)
+			expect(String(reason)).toContain('disconnected before response completed')
+			expect(listeners).toEqual([])
 		} finally {
 			await server.close()
 		}

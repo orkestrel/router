@@ -421,9 +421,13 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     and the first of several `Host` lines won.
 21. **The request signal aborts on a peer disconnect or on
     `RequestOptions.signal`, and on nothing else.** `buildRequest` mints an
-    `@orkestrel/abort` handle linked to `RequestOptions.signal` and builds the
-    `Request` over its `signal`. A peer disconnect is the message closing
-    before it completed, or the paired `RequestOptions.response` closing
+    `AbortController`, builds the `Request` over its `signal`, and listens on
+    `RequestOptions.signal` until the exchange ends: when the paired
+    `RequestOptions.response` closes, or, without one, when the message
+    closes. An option signal that aborts in that time aborts the request
+    signal with the option signal's own reason; afterward it holds no
+    listener of the exchange and aborts nothing. A peer disconnect is the
+    message closing before it completed, or the paired response closing
     before it ended. A body cancel, a discarded body, and a finished response
     never abort it. On Node 22, a `RequestOptions.signal` value that outlives
     its exchange keeps one `AbortSignal.any` link per `buildRequest` call
@@ -439,10 +443,11 @@ These invariants hold across `src/core` / `src/browser` / `src/server` ↔
     `buildRequest` pumped the whole upload into the body whether or not a
     reader read it, and a cancel destroyed the message, aborted
     `request.signal`, and left the next request on the connection unanswered.
-23. **A failed response reads as aborted.** `sendResponse` pipes a
-    non-`null` body to the `ServerResponse` through `Readable.fromWeb`, which
-    honors backpressure, and removes every listener it adds when the exchange
-    ends. A response to a `HEAD` request, and a 1xx, 204, or 304 response,
+23. **A failed response reads as aborted.** `sendResponse` ends the
+    `ServerResponse` with a body that completes in its first chunk, framed by
+    its length, and pipes any other non-`null` body through
+    `Readable.fromWeb`, which honors backpressure. It removes every listener
+    it adds when the exchange ends. A response to a `HEAD` request, and a 1xx, 204, or 304 response,
     carries no body on the wire, so `sendResponse` cancels its body unread and
     ends the target, where 0.0.22 read a `HEAD` response's body to its end and
     Node dropped each write. When the peer closes first, it cancels
